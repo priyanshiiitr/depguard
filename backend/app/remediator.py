@@ -33,7 +33,11 @@ async def remediate_repo(repo_url: str) -> dict:
         raise RemediationError(msg, trace)
 
     findings = cached["result"]["findings"]
-    auto_findings = [f for f in findings if f["recommended_action"] == "AUTO_REMEDIATE"]
+    # Phase 1 safety guard: only npm remediation is wired up so far (patch_package_json /
+    # patch_lockfile below are npm-specific). Other ecosystems can already reach
+    # AUTO_REMEDIATE via policy.py's ecosystem-agnostic rules; until Phase 2 adds their
+    # own remediation path (or the DETECTION_ONLY gate), they must not be acted on here.
+    auto_findings = [f for f in findings if f["recommended_action"] == "AUTO_REMEDIATE" and f.get("ecosystem", "npm") == "npm"]
     if not auto_findings:
         _step(trace, "Safety check", "NEEDS_REVIEW", "No findings meet the conservative bar for automatic remediation. No PR was created.")
         return {

@@ -45,14 +45,30 @@ def max_risk(risks: list[str]) -> str:
     return max(risks, key=lambda r: _SEVERITY_ORDER.get(r, 0))
 
 
-def extract_fixed_versions(vuln: dict, name: str) -> list[str]:
+def extract_fixed_versions(vuln: dict, name: str, ecosystem: str = "npm") -> list[str]:
+    """Extract explicit "fixed" versions from OSV ranges.
+
+    Accepts both "SEMVER" and "ECOSYSTEM" range types: npm advisories are
+    almost always SEMVER-typed, but PyPI/RubyGems/Packagist advisories (PEP
+    440 / RubyGems / Composer versioning isn't strict semver) commonly use
+    "ECOSYSTEM" ranges instead. Both types can carry an explicit "fixed"
+    event, which is what matters here.
+
+    Deliberately NOT handled: a range that only gives "last_affected"
+    (the last known-bad version, with no explicit fixed version). Resolving
+    that into a concrete "next safe version" would require querying each
+    ecosystem's registry for its full version list and guessing which
+    release comes next -- exactly the kind of guess this project's policy
+    refuses to make. Those advisories correctly fall through to
+    "no fixed version published" (NEEDS_REVIEW) instead.
+    """
     fixed = []
     for affected in vuln.get("affected", []):
         pkg = affected.get("package", {})
-        if pkg.get("ecosystem") != "npm" or pkg.get("name") != name:
+        if pkg.get("ecosystem") != ecosystem or pkg.get("name") != name:
             continue
         for rng in affected.get("ranges", []):
-            if rng.get("type") != "SEMVER":
+            if rng.get("type") not in ("SEMVER", "ECOSYSTEM"):
                 continue
             for event in rng.get("events", []):
                 if "fixed" in event:
@@ -60,7 +76,7 @@ def extract_fixed_versions(vuln: dict, name: str) -> list[str]:
     return fixed
 
 
-def decide_vulnerability(name: str, current_version: str, is_direct: bool, vulns: list[dict]) -> dict:
+def decide_vulnerability(name: str, current_version: str, is_direct: bool, vulns: list[dict], ecosystem: str = "npm") -> dict:
     """vulns: list of full OSV vuln records affecting this name@current_version.
     Returns a dict of finding fields.
 
@@ -75,7 +91,7 @@ def decide_vulnerability(name: str, current_version: str, is_direct: bool, vulns
     all_fixed = []
     per_vuln_min_safe = []
     for v in vulns:
-        fixed_for_this = [f for f in extract_fixed_versions(v, name) if semver.parse(f) is not None]
+        fixed_for_this = [f for f in extract_fixed_versions(v, name, ecosystem) if semver.parse(f) is not None]
         all_fixed.extend(fixed_for_this)
         if current_parsed is None:
             per_vuln_min_safe.append(None)

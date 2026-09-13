@@ -10,12 +10,12 @@ class OSVClient:
         await self.client.aclose()
 
     async def query_batch(self, packages: list[dict]) -> list[dict]:
-        """packages: [{"name": str, "version": str}]
+        """packages: [{"name": str, "version": str, "ecosystem": str (optional, defaults to "npm")}]
         Returns list aligned with input, each item a dict with 'vulns': [{'id':...}, ...] (possibly empty)."""
         if not packages:
             return []
         queries = [
-            {"package": {"name": p["name"], "ecosystem": "npm"}, "version": p["version"]}
+            {"package": {"name": p["name"], "ecosystem": p.get("ecosystem", "npm")}, "version": p["version"]}
             for p in packages
         ]
         r = await self.client.post("/v1/querybatch", json={"queries": queries})
