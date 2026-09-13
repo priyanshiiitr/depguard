@@ -21,7 +21,7 @@ cases in this process, on this run.
 import json
 from pathlib import Path
 
-from . import policy
+from . import policy, llm_parser
 from .clients.osv import OSVClient
 from .clients.eol import EOLClient, classify_eol
 from . import semver
@@ -36,7 +36,8 @@ def _load_gold_set():
 
 async def _run_live_osv_case(osv: OSVClient, case: dict) -> dict:
     name, version, is_direct = case["name"], case["version"], case["is_direct"]
-    results = await osv.query_batch([{"name": name, "version": version}])
+    ecosystem = case.get("ecosystem", "npm")
+    results = await osv.query_batch([{"name": name, "version": version, "ecosystem": ecosystem}])
     vuln_ids = [v["id"] for v in results[0].get("vulns", [])] if results else []
     records = []
     for vid in vuln_ids:
@@ -50,7 +51,7 @@ async def _run_live_osv_case(osv: OSVClient, case: dict) -> dict:
         actual_action = "NONE"
         actual_min_safe = None
     else:
-        decision = policy.decide_vulnerability(name, version, is_direct, records)
+        decision = policy.decide_vulnerability(name, version, is_direct, records, ecosystem=ecosystem)
         actual_action = decision["recommended_action"]
         actual_min_safe = decision["min_safe_version"]
 
@@ -61,7 +62,7 @@ async def _run_live_osv_case(osv: OSVClient, case: dict) -> dict:
             passed = False
 
     return {
-        "id": case["id"], "kind": case["kind"], "passed": passed,
+        "id": case["id"], "kind": case["kind"], "passed": passed, "ecosystem": ecosystem,
         "expected": {"vulnerable": case["expect_vulnerable"], "action": case["expect_action"],
                      "min_safe_at_least": case.get("expect_min_safe_at_least")},
         "actual": {"vulnerable": actual_vulnerable, "action": actual_action, "min_safe_version": actual_min_safe},
@@ -94,6 +95,24 @@ def _run_policy_license_case(case: dict) -> dict:
         "id": case["id"], "kind": case["kind"], "passed": passed,
         "expected": {"conflict": case["expect_conflict"]},
         "actual": {"conflict": conflict, "reason": reason},
+    }
+
+
+async def _run_llm_verify_case(case: dict) -> dict:
+    """Tests llm_parser's deterministic verifier directly, with a hand-written
+    synthetic LLM-shaped entry -- no LLM call, no API key required. Exercises
+    the same verify_entry() used in production between the LLM proposing a
+    candidate and it being allowed into the OSV/policy pipeline."""
+    dep, reason = await llm_parser.verify_entry(case["file_text"], case["entry"])
+    was_rejected = dep is None
+    passed = was_rejected == case["expect_rejected"]
+    expected_reason = case.get("expect_reason_contains")
+    if passed and was_rejected and expected_reason:
+        passed = expected_reason.lower() in (reason or "").lower()
+    return {
+        "id": case["id"], "kind": case["kind"], "passed": passed,
+        "expected": {"rejected": case["expect_rejected"], "reason_contains": expected_reason},
+        "actual": {"rejected": was_rejected, "reason": reason},
     }
 
 
@@ -130,6 +149,8 @@ async def run_eval() -> dict:
                 results.append(_run_policy_license_case(case))
             elif case["kind"] == "eol":
                 results.append(await _run_eol_case(eol, cycles_cache, case))
+            elif case["kind"] == "llm_verify":
+                results.append(await _run_llm_verify_case(case))
             else:
                 results.append({"id": case["id"], "kind": case["kind"], "passed": False,
                                  "expected": {}, "actual": {"error": "unknown case kind"}})

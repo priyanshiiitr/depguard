@@ -79,6 +79,16 @@
   .footer-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
   .muted { color: var(--muted); font-size: 13px; }
   .eval-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .ecosystem-group { margin-bottom: 22px; }
+  .ecosystem-group:last-child { margin-bottom: 0; }
+  .ecosystem-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
+  .ecosystem-name { font-weight: 700; font-size: 14px; }
+  .ecosystem-counts { display: flex; gap: 6px; flex-wrap: wrap; }
+  .count-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); }
+  .count-pill.has-auto { color: var(--accent); border-color: rgba(91,140,255,0.35); }
+  .count-pill.has-review { color: var(--review); border-color: rgba(255,210,63,0.35); }
+  .count-pill.has-detection { color: var(--high); border-color: rgba(255,145,66,0.35); }
+  .ecosystem-group table { margin-bottom: 4px; }
 </style>
 </head>
 <body>
@@ -111,12 +121,7 @@
     <div class="card">
       <h2>Findings &amp; Recommended Actions</h2>
       <div id="noFindings" class="muted hidden">No actionable findings. This repository looks clean under DepGuard's current checks.</div>
-      <table id="findingsTable">
-        <thead><tr>
-          <th>Dependency</th><th>Current</th><th>Risk</th><th>Advisory</th><th>Min Safe</th><th>Reason</th><th>Action</th>
-        </tr></thead>
-        <tbody id="findingsBody"></tbody>
-      </table>
+      <div id="findingsGroups"></div>
       <div class="footer-actions">
         <span class="muted" id="autoCountMsg"></span>
         <button id="remediateBtn" onclick="remediate()" disabled>Create Remediation PR</button>
@@ -201,25 +206,62 @@ function renderAnalysis(data) {
   document.getElementById('statFindings').textContent = data.findings.length;
   document.getElementById('statRisk').outerHTML = `<span id="statRisk" class="badge ${data.overall_risk}">${data.overall_risk}</span>`;
 
-  const tbody = document.getElementById('findingsBody');
-  tbody.innerHTML = '';
   document.getElementById('noFindings').classList.toggle('hidden', data.findings.length > 0);
-  document.getElementById('findingsTable').classList.toggle('hidden', data.findings.length === 0);
 
-  let autoCount = 0;
+  // Group findings by ecosystem (order of first appearance), so each group can show
+  // its own AUTO-FIXABLE / NEEDS_REVIEW / DETECTION_ONLY / INFORMATIONAL breakdown.
+  const groups = new Map();
   for (const f of data.findings) {
-    if (f.recommended_action === 'AUTO_REMEDIATE') autoCount++;
-    const tr = document.createElement('tr');
-    tr.innerHTML = `
-      <td><strong>${f.dependency}</strong><br><span class="muted">${f.type}${f.is_direct ? '' : ' (transitive)'}</span></td>
-      <td>${f.current_version || '-'}</td>
-      <td>${badge(f.risk)}</td>
-      <td>${f.advisory_id || '-'}</td>
-      <td>${f.min_safe_version || '-'}</td>
-      <td style="max-width:280px">${f.reason}</td>
-      <td>${badge(f.recommended_action)}</td>
+    const eco = f.ecosystem || 'other';
+    if (!groups.has(eco)) groups.set(eco, []);
+    groups.get(eco).push(f);
+  }
+
+  const container = document.getElementById('findingsGroups');
+  container.innerHTML = '';
+  let autoCount = 0;
+
+  for (const [eco, findings] of groups.entries()) {
+    const counts = {AUTO_REMEDIATE: 0, NEEDS_REVIEW: 0, DETECTION_ONLY: 0, INFORMATIONAL: 0};
+    for (const f of findings) {
+      if (f.recommended_action in counts) counts[f.recommended_action]++;
+      if (f.recommended_action === 'AUTO_REMEDIATE') autoCount++;
+    }
+
+    const group = document.createElement('div');
+    group.className = 'ecosystem-group';
+    group.innerHTML = `
+      <div class="ecosystem-header">
+        <span class="ecosystem-name">${eco}</span>
+        <div class="ecosystem-counts">
+          ${counts.AUTO_REMEDIATE ? `<span class="count-pill has-auto">${counts.AUTO_REMEDIATE} auto-fixable</span>` : ''}
+          ${counts.NEEDS_REVIEW ? `<span class="count-pill has-review">${counts.NEEDS_REVIEW} needs review</span>` : ''}
+          ${counts.DETECTION_ONLY ? `<span class="count-pill has-detection">${counts.DETECTION_ONLY} detection-only</span>` : ''}
+          ${counts.INFORMATIONAL ? `<span class="count-pill">${counts.INFORMATIONAL} informational</span>` : ''}
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th>Dependency</th><th>Current</th><th>Risk</th><th>Advisory</th><th>Min Safe</th><th>Reason</th><th>Action</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
     `;
-    tbody.appendChild(tr);
+    const tbody = group.querySelector('tbody');
+    for (const f of findings) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><strong>${f.dependency}</strong><br><span class="muted">${f.type}${f.is_direct ? '' : ' (transitive)'}${f.source === 'llm' ? ' &middot; LLM-extracted' : ''}</span></td>
+        <td>${f.current_version || '-'}</td>
+        <td>${badge(f.risk)}</td>
+        <td>${f.advisory_id || '-'}</td>
+        <td>${f.min_safe_version || '-'}</td>
+        <td style="max-width:280px">${f.reason}</td>
+        <td>${badge(f.recommended_action)}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+    container.appendChild(group);
   }
 
   const remediateBtn = document.getElementById('remediateBtn');
