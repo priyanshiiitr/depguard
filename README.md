@@ -1,5 +1,5 @@
 # DepGuard
-
+Video link : https://drive.google.com/file/d/1H4ibd5PrhpPaD7hjJXPET0NUw1lT6sv_/view?usp=drivesdk
 **AI Dependency Risk & License-Conflict Triage Agent**
 
 > Point DepGuard at a GitHub repository. It analyzes dependencies across six ecosystems, identifies actionable security/EOL/license risks, decides the smallest safe remediation, executes it through GitHub where it can, records and notifies the result either way, and can keep watching the repo on a schedule.
