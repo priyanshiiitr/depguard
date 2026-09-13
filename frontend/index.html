@@ -6,43 +6,60 @@
 <title>DepGuard</title>
 <style>
   :root {
-    --bg: #0b0e14; --panel: #131722; --panel2: #1a1f2e; --border: #262c3d;
-    --text: #e6e9f2; --muted: #8b93a7; --accent: #5b8cff;
+    --bg: #0a0d13; --panel: #12161f; --panel2: #1a1f2c; --panel3: #202638; --border: #262c3d;
+    --text: #e9ecf5; --muted: #8b93a7; --accent: #5b8cff; --accent2: #8b6cff;
     --crit: #ff4d5e; --high: #ff9142; --mod: #ffd23f; --low: #4dd0a0; --none: #4dd0a0;
-    --ok: #4dd0a0; --fail: #ff4d5e; --review: #ffd23f;
+    --ok: #4dd0a0; --fail: #ff4d5e; --review: #ffd23f; --llm: #b98cff;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-    padding: 32px 20px 80px;
+    margin: 0; background:
+      radial-gradient(1200px 500px at 15% -10%, rgba(91,140,255,0.10), transparent),
+      radial-gradient(900px 400px at 100% 0%, rgba(139,108,255,0.08), transparent),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 32px 20px 90px;
   }
-  .wrap { max-width: 980px; margin: 0 auto; }
-  h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -0.5px; }
-  .tagline { color: var(--muted); margin: 0 0 28px; font-size: 15px; }
+  .wrap { max-width: 1040px; margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+  .brand svg { flex-shrink: 0; }
+  h1 { font-size: 30px; margin: 0; letter-spacing: -0.5px; font-weight: 800; }
+  .tagline { color: var(--muted); margin: 4px 0 28px 44px; font-size: 14.5px; }
   .card {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    background: linear-gradient(180deg, var(--panel), var(--panel) 60%, var(--panel2));
+    border: 1px solid var(--border); border-radius: 14px;
     padding: 22px; margin-bottom: 20px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px rgba(0,0,0,0.18);
   }
-  .row { display: flex; gap: 10px; }
-  input[type=text] {
-    flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
-    padding: 12px 14px; border-radius: 8px; font-size: 14px; outline: none;
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .field { flex: 1; min-width: 220px; position: relative; }
+  input[type=text], input[type=password] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 12px 14px; border-radius: 9px; font-size: 14px; outline: none; font-family: inherit;
   }
-  input[type=text]:focus { border-color: var(--accent); }
+  input[type=text]:focus, input[type=password]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,140,255,0.15); }
+  .field-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; display: block; font-weight: 600; }
+  .token-toggle {
+    position: absolute; right: 10px; top: 34px; background: none; border: none; color: var(--muted);
+    font-size: 12px; padding: 4px 6px; cursor: pointer; font-weight: 600;
+  }
+  .token-toggle:hover { color: var(--text); }
   button {
-    background: var(--accent); color: white; border: none; border-radius: 8px;
-    padding: 12px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+    background: linear-gradient(180deg, var(--accent), #4a78e8); color: white; border: none; border-radius: 9px;
+    padding: 12px 22px; font-size: 14px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    box-shadow: 0 4px 14px rgba(91,140,255,0.28);
   }
-  button:disabled { background: #3a4055; cursor: not-allowed; color: var(--muted); }
-  button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
-  .example { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  button:disabled { background: #3a4055; cursor: not-allowed; color: var(--muted); box-shadow: none; }
+  button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); box-shadow: none; }
+  .example { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .token-note { color: var(--muted); font-size: 11.5px; margin-top: 6px; }
   .hidden { display: none !important; }
   .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 4px; }
-  .stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
-  .stat .num { font-size: 22px; font-weight: 700; }
-  .stat .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; }
+  .stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  .stat .num { font-size: 24px; font-weight: 800; letter-spacing: -0.3px; }
+  .stat .label { font-size: 11.5px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap; }
   .badge.CRITICAL { background: rgba(255,77,94,0.18); color: var(--crit); }
   .badge.HIGH { background: rgba(255,145,66,0.18); color: var(--high); }
   .badge.MODERATE { background: rgba(255,210,63,0.18); color: var(--mod); }
@@ -54,68 +71,151 @@
   .badge.AUTO_REMEDIATE { background: rgba(91,140,255,0.18); color: var(--accent); }
   .badge.INFORMATIONAL { background: rgba(139,147,167,0.18); color: var(--muted); }
   .badge.DETECTION_ONLY { background: rgba(255,145,66,0.14); color: var(--high); }
+  .badge.llm { background: rgba(185,140,255,0.18); color: var(--llm); }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
   th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
-  .trace-list { list-style: none; margin: 0; padding: 0; }
-  .trace-list li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; align-items: flex-start; }
-  .trace-list li:last-child { border-bottom: none; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
-  .dot.SUCCESS { background: var(--ok); }
-  .dot.FAILED { background: var(--fail); }
-  .dot.NEEDS_REVIEW { background: var(--review); }
-  .dot.SKIPPED { background: var(--muted); }
-  .step-name { font-weight: 600; min-width: 150px; }
-  .step-detail { color: var(--muted); }
-  h2 { font-size: 16px; margin: 0 0 16px; }
+  tr:last-child td { border-bottom: none; }
+  h2 { font-size: 16px; margin: 0 0 16px; display: flex; align-items: center; gap: 8px; }
+  h2 .h2-sub { font-size: 12px; color: var(--muted); font-weight: 400; margin-left: 4px; }
   .error-box { background: rgba(255,77,94,0.1); border: 1px solid rgba(255,77,94,0.35); color: var(--crit); padding: 14px; border-radius: 8px; font-size: 14px; }
   .checklist { list-style: none; padding: 0; margin: 0 0 14px; }
-  .checklist li { padding: 5px 0; font-size: 14px; }
-  .checklist li.done::before { content: "\2713  "; color: var(--ok); font-weight: 700; }
-  .checklist li.pending::before { content: "\25cb  "; color: var(--muted); }
+  .checklist li { padding: 6px 0; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .check-icon { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+  .check-icon.done { background: rgba(77,208,160,0.18); color: var(--ok); }
+  .check-icon.pending { background: rgba(139,147,167,0.15); color: var(--muted); }
   a { color: var(--accent); }
-  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.35); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .footer-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .footer-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; gap: 12px; flex-wrap: wrap; }
   .muted { color: var(--muted); font-size: 13px; }
   .eval-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+
+  /* Hero risk strip */
+  .hero { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+  .risk-dial { width: 84px; height: 84px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 3px solid; font-weight: 800; font-size: 13px; text-align: center; line-height: 1.15; }
+  .risk-dial.CRITICAL { border-color: var(--crit); color: var(--crit); background: rgba(255,77,94,0.08); }
+  .risk-dial.HIGH { border-color: var(--high); color: var(--high); background: rgba(255,145,66,0.08); }
+  .risk-dial.MODERATE { border-color: var(--mod); color: var(--mod); background: rgba(255,210,63,0.08); }
+  .risk-dial.LOW, .risk-dial.NONE { border-color: var(--low); color: var(--low); background: rgba(77,208,160,0.08); }
+  .hero-repo { font-size: 19px; font-weight: 800; word-break: break-word; }
+  .hero-eco-row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .eco-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--panel2); border: 1px solid var(--border); border-radius: 999px; padding: 3px 10px 3px 6px; font-size: 12px; font-weight: 600; }
+  .eco-chip .eco-icon { font-size: 14px; }
+
+  /* Ecosystem finding groups */
   .ecosystem-group { margin-bottom: 22px; }
   .ecosystem-group:last-child { margin-bottom: 0; }
   .ecosystem-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
-  .ecosystem-name { font-weight: 700; font-size: 14px; }
+  .ecosystem-name { font-weight: 800; font-size: 14.5px; display: flex; align-items: center; gap: 6px; }
   .ecosystem-counts { display: flex; gap: 6px; flex-wrap: wrap; }
-  .count-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); }
+  .count-pill { font-size: 11px; padding: 2px 8px; border-radius: 999px; background: var(--panel2); border: 1px solid var(--border); color: var(--muted); font-weight: 600; }
   .count-pill.has-auto { color: var(--accent); border-color: rgba(91,140,255,0.35); }
   .count-pill.has-review { color: var(--review); border-color: rgba(255,210,63,0.35); }
   .count-pill.has-detection { color: var(--high); border-color: rgba(255,145,66,0.35); }
   .ecosystem-group table { margin-bottom: 4px; }
+  .llm-tag { display: inline-flex; align-items: center; gap: 3px; background: rgba(185,140,255,0.14); color: var(--llm); border-radius: 999px; padding: 1px 7px; font-size: 10px; font-weight: 700; margin-left: 6px; }
+
+  /* LLM Manifest Agent panel */
+  .llm-file-card { background: var(--panel3); border: 1px solid rgba(185,140,255,0.25); border-radius: 12px; padding: 16px; margin-bottom: 14px; }
+  .llm-file-card:last-child { margin-bottom: 0; }
+  .llm-file-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+  .llm-file-name { font-weight: 800; font-size: 14.5px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--llm); }
+  .llm-counts { display: flex; gap: 8px; flex-wrap: wrap; }
+  .llm-count { font-size: 11.5px; padding: 3px 10px; border-radius: 999px; font-weight: 700; }
+  .llm-count.extracted { background: rgba(139,147,167,0.15); color: var(--muted); }
+  .llm-count.verified { background: rgba(77,208,160,0.15); color: var(--ok); }
+  .llm-count.rejected { background: rgba(255,77,94,0.15); color: var(--fail); }
+  .llm-rejected-list { list-style: none; margin: 8px 0 0; padding: 10px 12px; background: rgba(0,0,0,0.15); border-radius: 8px; }
+  .llm-rejected-list li { font-size: 12px; color: var(--muted); padding: 3px 0; }
+  .llm-rejected-list li code { color: var(--fail); background: rgba(255,77,94,0.1); padding: 1px 5px; border-radius: 4px; }
+  .llm-explainer { font-size: 12.5px; color: var(--muted); margin: 0 0 16px; line-height: 1.5; }
+
+  /* Trace timeline */
+  .trace-list { list-style: none; margin: 0; padding: 0; position: relative; }
+  .trace-list li { display: flex; gap: 12px; padding: 9px 0; align-items: flex-start; position: relative; }
+  .trace-list li:not(:last-child)::before {
+    content: ""; position: absolute; left: 10px; top: 28px; bottom: -9px; width: 1.5px; background: var(--border);
+  }
+  .trace-icon {
+    width: 21px; height: 21px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 800; margin-top: 1px; z-index: 1;
+  }
+  .trace-icon.SUCCESS { background: rgba(77,208,160,0.18); color: var(--ok); }
+  .trace-icon.FAILED { background: rgba(255,77,94,0.18); color: var(--fail); }
+  .trace-icon.NEEDS_REVIEW { background: rgba(255,210,63,0.18); color: var(--review); }
+  .trace-icon.SKIPPED { background: rgba(139,147,167,0.18); color: var(--muted); }
+  .trace-body { flex: 1; min-width: 0; }
+  .trace-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .step-name { font-weight: 700; font-size: 13.5px; }
+  .step-detail { color: var(--muted); font-size: 13px; margin-top: 1px; }
+  .trace-list li.llm-step .trace-icon { background: rgba(185,140,255,0.2); color: var(--llm); }
+  .trace-list li.llm-step .step-name { color: var(--llm); }
+
+  .footer-note { text-align: center; color: var(--muted); font-size: 12px; margin-top: 30px; }
+
+  @media (max-width: 560px) {
+    .hero { flex-direction: column; align-items: flex-start; }
+    .tagline { margin-left: 0; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>DepGuard</h1>
-  <p class="tagline">AI Dependency Risk &amp; License-Conflict Triage Agent</p>
+  <div class="brand">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none">
+      <path d="M12 2L4 5v6c0 5.2 3.4 9.8 8 11 4.6-1.2 8-5.8 8-11V5l-8-3z" fill="url(#g1)" stroke="#5b8cff" stroke-width="1"/>
+      <path d="M9 12.5l2 2 4-4.5" stroke="white" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <defs><linearGradient id="g1" x1="4" y1="2" x2="20" y2="22"><stop stop-color="#5b8cff"/><stop offset="1" stop-color="#8b6cff"/></linearGradient></defs>
+    </svg>
+    <h1>DepGuard</h1>
+  </div>
+  <p class="tagline">AI Dependency Risk &amp; License-Conflict Triage Agent &mdash; 6 ecosystems, deterministic decisions, real GitHub actions</p>
 
   <div class="card">
     <h2>Analyze a GitHub repository</h2>
     <div class="row">
-      <input type="text" id="repoUrl" placeholder="https://github.com/owner/repository" value="">
-      <button id="analyzeBtn" onclick="analyze()">Analyze Repository</button>
+      <div class="field">
+        <label class="field-label" for="repoUrl">GitHub repository URL</label>
+        <input type="text" id="repoUrl" placeholder="https://github.com/owner/repository">
+      </div>
+      <div class="field" style="max-width:340px">
+        <label class="field-label" for="ghToken">GitHub token (optional)</label>
+        <input type="password" id="ghToken" placeholder="Paste a fine-grained PAT, or leave blank to use the server's">
+        <button class="token-toggle" onclick="toggleTokenVisibility()" id="tokenToggleBtn" type="button">show</button>
+      </div>
+      <div style="align-self:flex-end">
+        <button id="analyzeBtn" onclick="analyze()">Analyze Repository</button>
+      </div>
     </div>
-    <div class="example">Example: https://github.com/owner/repository (must have package.json + package-lock.json)</div>
+    <div class="example">Example: https://github.com/owner/repository &mdash; needs at least one of: package.json+lock, requirements.txt, Cargo.lock, go.sum, composer.lock, Gemfile.lock, or pom.xml/build.gradle/Pipfile.lock/pyproject.toml/*.csproj</div>
+    <div class="token-note">If provided, the token is sent directly to this app's own backend for this request only &mdash; never logged, never echoed back, never stored beyond the request. Needs Contents: Read and write + Pull requests: Read and write to open a real PR.</div>
     <div id="analyzeError" class="hidden" style="margin-top:14px"></div>
   </div>
 
   <div id="resultsSection" class="hidden">
     <div class="card">
       <h2>Repository Summary</h2>
+      <div class="hero" style="margin-bottom:18px">
+        <div class="risk-dial NONE" id="riskDial">-</div>
+        <div>
+          <div class="hero-repo" id="statRepo">-</div>
+          <div class="hero-eco-row" id="ecoRow"></div>
+        </div>
+      </div>
       <div class="stat-grid">
-        <div class="stat"><div class="num" id="statRepo">-</div><div class="label">Repository</div></div>
-        <div class="stat"><div class="num" id="statDeps">-</div><div class="label">Dependencies</div></div>
+        <div class="stat"><div class="num" id="statDeps">-</div><div class="label">Dependencies Scanned</div></div>
         <div class="stat"><div class="num" id="statDirect">-</div><div class="label">Direct Dependencies</div></div>
         <div class="stat"><div class="num" id="statFindings">-</div><div class="label">Findings</div></div>
-        <div class="stat"><div class="num"><span id="statRisk" class="badge">-</span></div><div class="label">Overall Risk</div></div>
+        <div class="stat"><div class="num" id="statAuto">-</div><div class="label">Auto-Fixable</div></div>
+        <div class="stat"><div class="num" id="statEco">-</div><div class="label">Ecosystems Detected</div></div>
       </div>
+    </div>
+
+    <div id="llmSection" class="card hidden">
+      <h2>&#129302; LLM Manifest Agent Activity</h2>
+      <p class="llm-explainer">These files have no deterministic parser (irregular XML/DSL formats). An LLM proposed dependency candidates from the raw text; every candidate below was then independently verified &mdash; checked verbatim against the source file, checked for a concrete (non-placeholder) version, and checked against the real package registry &mdash; before anything survived into the vulnerability pipeline. The LLM never decided what's vulnerable; that's the same deterministic policy engine used for every other ecosystem.</p>
+      <div id="llmFiles"></div>
     </div>
 
     <div class="card">
@@ -130,7 +230,7 @@
     </div>
 
     <div id="remediationSection" class="card hidden">
-      <h2>Remediation Execution</h2>
+      <h2>&#9989; Remediation Execution</h2>
       <ul class="checklist" id="remediationChecklist"></ul>
       <div id="prLinkBox"></div>
     </div>
@@ -143,18 +243,31 @@
 
   <div class="card">
     <h2>Reliability &amp; Evaluation</h2>
-    <p class="muted">Runs DepGuard's decision layer against a 20-case gold set (real OSV.dev / endoflife.date lookups plus deterministic policy-rule checks).</p>
+    <p class="muted">Runs DepGuard's decision layer against a 33-case gold set (real OSV.dev / endoflife.date / registry lookups across all 6 ecosystems, plus deterministic policy and LLM-verifier unit checks) &mdash; live, every time, no cached answers.</p>
     <button class="secondary" onclick="runEval()" id="evalBtn">Run Evaluation Suite</button>
     <div id="evalResults" style="margin-top:18px"></div>
   </div>
+
+  <p class="footer-note">Built for a 6.5-hour multi-app AI agent hackathon. Every action shown above reflects a real call to GitHub, OSV.dev, deps.dev, endoflife.date, Slack, Google Sheets, or Groq &mdash; nothing here is simulated.</p>
 </div>
 
 <script>
 const API = "";
 let lastRepoUrl = "";
+let lastGithubToken = "";
+
+const ECO_ICONS = {
+  npm: "\u{1F4E6}", PyPI: "\u{1F40D}", "crates.io": "\u{1F980}", Go: "\u{1F439}",
+  Packagist: "\u{1F418}", RubyGems: "\u{1F48E}", Maven: "☕", NuGet: "\u{1F537}",
+};
+function ecoIcon(eco) { return ECO_ICONS[eco] || "\u{1F4C1}"; }
 
 function badge(text, cls) {
   return `<span class="badge ${cls || text}">${text}</span>`;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 function setLoading(btn, loading, label) {
@@ -162,12 +275,22 @@ function setLoading(btn, loading, label) {
   btn.innerHTML = loading ? `<span class="spinner"></span>${label}` : label;
 }
 
+function toggleTokenVisibility() {
+  const input = document.getElementById('ghToken');
+  const btn = document.getElementById('tokenToggleBtn');
+  const showing = input.type === 'text';
+  input.type = showing ? 'password' : 'text';
+  btn.textContent = showing ? 'show' : 'hide';
+}
+
 async function analyze() {
   const repoUrl = document.getElementById('repoUrl').value.trim();
+  const token = document.getElementById('ghToken').value.trim();
   const errBox = document.getElementById('analyzeError');
   errBox.classList.add('hidden');
   if (!repoUrl) { return; }
   lastRepoUrl = repoUrl;
+  lastGithubToken = token;
 
   const btn = document.getElementById('analyzeBtn');
   setLoading(btn, true, 'Analyzing...');
@@ -175,16 +298,18 @@ async function analyze() {
   document.getElementById('remediationSection').classList.add('hidden');
 
   try {
+    const body = {repo_url: repoUrl};
+    if (token) body.github_token = token;
     const res = await fetch(`${API}/api/analyze`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({repo_url: repoUrl}),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) {
       const detail = data.detail || {};
       errBox.textContent = detail.error || 'Analysis failed.';
       errBox.className = 'error-box';
-      if (detail.trace) renderTrace(detail.trace);
+      if (detail.trace) { document.getElementById('resultsSection').classList.remove('hidden'); renderTrace(detail.trace); }
       return;
     }
     renderAnalysis(data);
@@ -196,15 +321,22 @@ async function analyze() {
   }
 }
 
-function riskBadgeClass(risk) { return risk; }
-
 function renderAnalysis(data) {
   document.getElementById('resultsSection').classList.remove('hidden');
   document.getElementById('statRepo').textContent = data.repo;
   document.getElementById('statDeps').textContent = data.dependency_count;
   document.getElementById('statDirect').textContent = data.direct_dependency_count;
   document.getElementById('statFindings').textContent = data.findings.length;
-  document.getElementById('statRisk').outerHTML = `<span id="statRisk" class="badge ${data.overall_risk}">${data.overall_risk}</span>`;
+  document.getElementById('statEco').textContent = (data.ecosystems_detected || []).length;
+
+  const dial = document.getElementById('riskDial');
+  dial.className = `risk-dial ${data.overall_risk}`;
+  dial.textContent = data.overall_risk;
+
+  const ecoRow = document.getElementById('ecoRow');
+  ecoRow.innerHTML = (data.ecosystems_detected || []).map(eco =>
+    `<span class="eco-chip"><span class="eco-icon">${ecoIcon(eco)}</span>${esc(eco)}</span>`
+  ).join('');
 
   document.getElementById('noFindings').classList.toggle('hidden', data.findings.length > 0);
 
@@ -232,7 +364,7 @@ function renderAnalysis(data) {
     group.className = 'ecosystem-group';
     group.innerHTML = `
       <div class="ecosystem-header">
-        <span class="ecosystem-name">${eco}</span>
+        <span class="ecosystem-name">${ecoIcon(eco)} ${esc(eco)}</span>
         <div class="ecosystem-counts">
           ${counts.AUTO_REMEDIATE ? `<span class="count-pill has-auto">${counts.AUTO_REMEDIATE} auto-fixable</span>` : ''}
           ${counts.NEEDS_REVIEW ? `<span class="count-pill has-review">${counts.NEEDS_REVIEW} needs review</span>` : ''}
@@ -251,17 +383,46 @@ function renderAnalysis(data) {
     for (const f of findings) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><strong>${f.dependency}</strong><br><span class="muted">${f.type}${f.is_direct ? '' : ' (transitive)'}${f.source === 'llm' ? ' &middot; LLM-extracted' : ''}</span></td>
-        <td>${f.current_version || '-'}</td>
+        <td><strong>${esc(f.dependency)}</strong><br><span class="muted">${esc(f.type)}${f.is_direct ? '' : ' (transitive)'}</span>${f.source === 'llm' ? '<span class="llm-tag">&#129302; LLM</span>' : ''}</td>
+        <td>${esc(f.current_version) || '-'}</td>
         <td>${badge(f.risk)}</td>
-        <td>${f.advisory_id || '-'}</td>
-        <td>${f.min_safe_version || '-'}</td>
-        <td style="max-width:280px">${f.reason}</td>
+        <td>${esc(f.advisory_id) || '-'}</td>
+        <td>${esc(f.min_safe_version) || '-'}</td>
+        <td style="max-width:280px">${esc(f.reason)}</td>
         <td>${badge(f.recommended_action)}</td>
       `;
       tbody.appendChild(tr);
     }
     container.appendChild(group);
+  }
+
+  document.getElementById('statAuto').textContent = autoCount;
+
+  // LLM Manifest Agent panel -- only shown when at least one LLM-parsed file was found.
+  const llmSection = document.getElementById('llmSection');
+  const llmSummary = data.llm_manifest_summary || [];
+  if (llmSummary.length > 0) {
+    llmSection.classList.remove('hidden');
+    document.getElementById('llmFiles').innerHTML = llmSummary.map(entry => `
+      <div class="llm-file-card">
+        <div class="llm-file-head">
+          <span class="llm-file-name">&#128196; ${esc(entry.file)}</span>
+          ${badge(entry.ecosystem, 'llm')}
+          <div class="llm-counts">
+            <span class="llm-count extracted">${entry.extracted} extracted</span>
+            <span class="llm-count verified">${entry.verified} verified</span>
+            ${entry.rejected.length ? `<span class="llm-count rejected">${entry.rejected.length} rejected</span>` : ''}
+          </div>
+        </div>
+        ${entry.rejected.length ? `
+          <ul class="llm-rejected-list">
+            ${entry.rejected.map(r => `<li><code>${esc(r.raw)}</code> &mdash; ${esc(r.reason)}</li>`).join('')}
+          </ul>
+        ` : ''}
+      </div>
+    `).join('');
+  } else {
+    llmSection.classList.add('hidden');
   }
 
   const remediateBtn = document.getElementById('remediateBtn');
@@ -273,14 +434,33 @@ function renderAnalysis(data) {
   renderTrace(data.trace);
 }
 
+function traceIcon(status) {
+  return {SUCCESS: '✓', FAILED: '✕', NEEDS_REVIEW: '!', SKIPPED: '→'}[status] || '•';
+}
+
+function renderTraceItem(t) {
+  const isLlm = /llm/i.test(t.step);
+  const li = document.createElement('li');
+  if (isLlm) li.className = 'llm-step';
+  li.innerHTML = `
+    <span class="trace-icon ${t.status}">${isLlm ? '&#129302;' : traceIcon(t.status)}</span>
+    <div class="trace-body">
+      <div class="trace-top"><span class="step-name">${esc(t.step)}</span>${badge(t.status)}</div>
+      <div class="step-detail">${esc(t.detail)}</div>
+    </div>
+  `;
+  return li;
+}
+
 function renderTrace(trace) {
   const list = document.getElementById('traceList');
   list.innerHTML = '';
-  for (const t of trace) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="dot ${t.status}"></span><span class="step-name">${t.step}</span><span class="step-detail">${t.detail}</span>`;
-    list.appendChild(li);
-  }
+  for (const t of trace) list.appendChild(renderTraceItem(t));
+}
+
+function appendTraceSteps(steps) {
+  const list = document.getElementById('traceList');
+  for (const t of steps) list.appendChild(renderTraceItem(t));
 }
 
 async function remediate() {
@@ -290,9 +470,11 @@ async function remediate() {
   setLoading(btn, true, 'Creating PR...');
 
   try {
+    const body = {repo_url: lastRepoUrl};
+    if (lastGithubToken) body.github_token = lastGithubToken;
     const res = await fetch(`${API}/api/remediate`, {
       method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({repo_url: lastRepoUrl}),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) {
@@ -311,15 +493,6 @@ async function remediate() {
   }
 }
 
-function appendTraceSteps(steps) {
-  const list = document.getElementById('traceList');
-  for (const t of steps) {
-    const li = document.createElement('li');
-    li.innerHTML = `<span class="dot ${t.status}"></span><span class="step-name">${t.step}</span><span class="step-detail">${t.detail}</span>`;
-    list.appendChild(li);
-  }
-}
-
 function renderRemediation(data) {
   const section = document.getElementById('remediationSection');
   section.classList.remove('hidden');
@@ -333,12 +506,12 @@ function renderRemediation(data) {
     ['Slack notification sent', !!data.slack_sent],
   ];
   checklist.innerHTML = items.map(([label, done]) =>
-    `<li class="${done ? 'done' : 'pending'}">${label}</li>`
+    `<li><span class="check-icon ${done ? 'done' : 'pending'}">${done ? '✓' : '○'}</span>${label}</li>`
   ).join('');
 
   const prBox = document.getElementById('prLinkBox');
   if (data.pr_url) {
-    prBox.innerHTML = `<p>Pull Request: <a href="${data.pr_url}" target="_blank">${data.pr_url}</a></p>`;
+    prBox.innerHTML = `<p>Pull Request: <a href="${data.pr_url}" target="_blank">${esc(data.pr_url)}</a></p>`;
   } else if (data.status === 'NEEDS_REVIEW') {
     prBox.innerHTML = `<p class="muted">No PR was opened: no findings met the conservative bar for automatic remediation.</p>`;
   }
@@ -369,11 +542,11 @@ async function runEval() {
         <tbody>
           ${data.results.map(r => `
             <tr>
-              <td>${r.id}</td>
-              <td class="muted">${r.kind}</td>
+              <td>${esc(r.id)}</td>
+              <td class="muted">${esc(r.kind)}</td>
               <td>${badge(r.passed ? 'SUCCESS' : 'FAILED', r.passed ? 'SUCCESS' : 'FAILED')}</td>
-              <td class="muted">${JSON.stringify(r.expected)}</td>
-              <td class="muted">${JSON.stringify(r.actual)}</td>
+              <td class="muted">${esc(JSON.stringify(r.expected))}</td>
+              <td class="muted">${esc(JSON.stringify(r.actual))}</td>
             </tr>
           `).join('')}
         </tbody>

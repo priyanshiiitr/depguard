@@ -29,7 +29,7 @@ def _patch_requirements_txt(content: str, raw_line: str, old_version: str, new_v
     return content.replace(raw_line, new_line, 1)
 
 
-async def remediate_repo(repo_url: str) -> dict:
+async def remediate_repo(repo_url: str, github_token: str | None = None) -> dict:
     trace = []
     try:
         owner, repo = parse_repo_url(repo_url)
@@ -67,7 +67,7 @@ async def remediate_repo(repo_url: str) -> dict:
             "slack_sent": slack_sent,
         }
 
-    gh = GitHubClient()
+    gh = GitHubClient(token=github_token)
     npm = NpmRegistryClient()
     default_branch = cached["default_branch"]
     dep_slug = "-".join(sorted({f["dependency"].replace("/", "-").lstrip("@") for f in auto_findings}))[:60]

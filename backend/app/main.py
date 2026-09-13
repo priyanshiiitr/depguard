@@ -30,7 +30,7 @@ async def root():
 @app.post("/api/analyze")
 async def api_analyze(req: AnalyzeRequest):
     try:
-        return await analyze_repo(req.repo_url)
+        return await analyze_repo(req.repo_url, github_token=req.github_token)
     except AnalysisError as e:
         raise HTTPException(status_code=400, detail={"error": e.message, "trace": e.trace})
     except Exception as e:
@@ -40,7 +40,7 @@ async def api_analyze(req: AnalyzeRequest):
 @app.post("/api/remediate")
 async def api_remediate(req: RemediateRequest):
     try:
-        return await remediate_repo(req.repo_url)
+        return await remediate_repo(req.repo_url, github_token=req.github_token)
     except RemediationError as e:
         raise HTTPException(status_code=400, detail={"error": e.message, "trace": e.trace})
     except Exception as e:

@@ -35,9 +35,9 @@ def _step(trace, step, status, detail):
     trace.append({"step": step, "status": status, "detail": detail})
 
 
-async def analyze_repo(repo_url: str) -> dict:
+async def analyze_repo(repo_url: str, github_token: str | None = None) -> dict:
     trace = []
-    gh = GitHubClient()
+    gh = GitHubClient(token=github_token)
     osv = OSVClient()
     dd = DepsDevClient()
     eol = EOLClient()

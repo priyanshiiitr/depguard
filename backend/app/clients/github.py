@@ -16,16 +16,20 @@ def parse_repo_url(repo_url: str):
     return m.group(1), m.group(2)
 
 
-def _headers():
+def _headers(token: str | None = None):
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
-    if config.GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {config.GITHUB_TOKEN}"
+    effective_token = token or config.GITHUB_TOKEN
+    if effective_token:
+        headers["Authorization"] = f"Bearer {effective_token}"
     return headers
 
 
 class GitHubClient:
-    def __init__(self):
-        self.client = httpx.AsyncClient(base_url=config.GITHUB_API, headers=_headers(), timeout=20.0)
+    def __init__(self, token: str | None = None):
+        """token: optional per-request override (e.g. pasted into the UI for a demo)
+        that takes precedence over the server's GITHUB_TOKEN env var for this
+        client instance only. Never logged, never echoed back in any response."""
+        self.client = httpx.AsyncClient(base_url=config.GITHUB_API, headers=_headers(token), timeout=20.0)
 
     async def close(self):
         await self.client.aclose()
