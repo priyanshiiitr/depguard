@@ -219,7 +219,7 @@ All secrets are read server-side only (`backend/app/config.py`) and never sent t
 
 ## Demo
 
-[Demo Video](YOUR_VIDEO_URL)
+[Demo Video](https://drive.google.com/drive/folders/1987xPGfap-lzamntTgDoiii1QXoCVLRz?usp=sharing)
 
 ## Limitations
 
