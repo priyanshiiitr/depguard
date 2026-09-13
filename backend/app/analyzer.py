@@ -55,6 +55,7 @@ async def analyze_repo(repo_url: str) -> dict:
         total_dependency_count = 0
         total_direct_dependency_count = 0
         npm_cache_fields = None
+        pypi_cache_fields = None
 
         # ==================== npm (package.json + package-lock.json) ====================
         # Unchanged from the original single-ecosystem MVP, just wrapped so that npm being
@@ -228,9 +229,11 @@ async def analyze_repo(repo_url: str) -> dict:
 
         # ==================== other ecosystems (deterministic parsers) ====================
         for filename, (parse_fn, ecosystem) in FILENAME_TO_PARSER.items():
-            content, _sha = await gh.get_file(owner, repo, filename, default_branch)
+            content, file_sha = await gh.get_file(owner, repo, filename, default_branch)
             if content is None:
                 continue
+            if filename == "requirements.txt":
+                pypi_cache_fields = {"requirements_txt_content": content, "requirements_txt_sha": file_sha}
 
             try:
                 deps, skipped = parse_fn(content)
@@ -290,6 +293,17 @@ async def analyze_repo(repo_url: str) -> dict:
                     continue
                 is_direct = True  # see note above
                 decision = policy.decide_vulnerability(d.name, d.version, is_direct, records, ecosystem=ecosystem)
+                # Remediation is only wired up for npm and PyPI so far (Phase 2). Every
+                # other ecosystem is detection-only: the advisory is real and still
+                # surfaced (UI, Slack, Sheets), but DepGuard cannot yet execute the fix,
+                # so it must not claim AUTO_REMEDIATE for it.
+                if ecosystem != "PyPI" and decision["recommended_action"] == "AUTO_REMEDIATE":
+                    decision = dict(decision)
+                    decision["recommended_action"] = "DETECTION_ONLY"
+                    decision["reason"] = (
+                        decision["reason"] + " Advisory detected -- manual upgrade required for this ecosystem "
+                        "(automatic remediation is currently only supported for npm and PyPI)."
+                    )
                 fid += 1
                 findings.append({
                     "id": f"vuln-{fid}",
@@ -298,6 +312,7 @@ async def analyze_repo(repo_url: str) -> dict:
                     "dependency": d.name,
                     "current_version": d.version,
                     "is_direct": is_direct,
+                    "raw_line": d.raw_line,
                     **decision,
                 })
 
@@ -317,10 +332,12 @@ async def analyze_repo(repo_url: str) -> dict:
         )
 
         auto_count = sum(1 for f in findings if f["recommended_action"] == "AUTO_REMEDIATE")
+        detection_only_count = sum(1 for f in findings if f["recommended_action"] == "DETECTION_ONLY")
         _step(
             trace, "Safety check", "SUCCESS",
             f"{auto_count} finding(s) meet the conservative bar for automatic remediation; "
-            f"{len(findings) - auto_count} require human review or are informational.",
+            f"{detection_only_count} are detected but not yet auto-fixable for their ecosystem; "
+            f"{len(findings) - auto_count - detection_only_count} require human review or are informational.",
         )
 
         result = {
@@ -340,6 +357,8 @@ async def analyze_repo(repo_url: str) -> dict:
         cache_entry = {"result": result, "owner": owner, "repo": repo, "default_branch": default_branch}
         if npm_cache_fields:
             cache_entry.update(npm_cache_fields)
+        if pypi_cache_fields:
+            cache_entry.update(pypi_cache_fields)
         ANALYSIS_CACHE[full_name] = cache_entry
         return result
     finally:
