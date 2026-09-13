@@ -2,7 +2,7 @@
 
 **AI Dependency Risk & License-Conflict Triage Agent**
 
-> Point DepGuard at a GitHub repository. It analyzes dependencies across six ecosystems, identifies actionable security/EOL/license risks, decides the smallest safe remediation, executes it through GitHub where it can, and records/notifies the result either way.
+> Point DepGuard at a GitHub repository. It analyzes dependencies across six ecosystems, identifies actionable security/EOL/license risks, decides the smallest safe remediation, executes it through GitHub where it can, records and notifies the result either way, and can keep watching the repo on a schedule.
 
 ## Problem
 
@@ -17,8 +17,9 @@ DepGuard started as a narrow, npm-only agent and was deliberately extended (in p
 3. Applies a small set of deterministic, conservative policy rules to decide, per finding, whether it's safe to auto-remediate, needs a human, or is merely detected (advisory real, no remediation path built yet for that ecosystem).
 4. On explicit user confirmation, opens a **real GitHub pull request** on a new branch — never touching the default branch directly — covering every auto-fixable finding across every ecosystem in one PR.
 5. Logs the remediation (and any detection-only findings, never silently dropped) to a **Google Sheet** and posts a **Slack** notification.
-6. Runs from a single web dashboard where a user pastes a repo URL and (optionally) their own GitHub token, and can connect **their own** Slack workspace and Google account through real OAuth. It can also watch a repo on a schedule (for example every 5 minutes, or twice a day) and alert only when findings change.
-7. Is judged on a 33-case evaluation harness that runs against live external data, not canned answers.
+6. Runs from a single web dashboard where a user pastes a repo URL and (optionally) their own GitHub token, and can connect **their own** Slack workspace and Google account through real OAuth.
+7. Can **monitor a repo on a schedule** (for example every 5 minutes, or twice a day), re-scanning unattended and alerting only when findings change.
+8. Is judged on a 33-case evaluation harness that runs against live external data, not canned answers.
 
 ## How It Works
 
@@ -36,8 +37,15 @@ GitHub repository
    -> deterministic policy decision (auto-remediate / needs review / detection-only / informational)
    -> [user clicks "Create Remediation PR"]
    -> new branch -> every auto-fixable file patched (npm + PyPI so far) -> commit(s) -> PR opened
+      (if an open PR already has these exact fixes, that PR is returned instead of a duplicate)
    -> Google Sheets remediation log row appended (including detection-only findings)
    -> Slack notification sent (including detection-only findings)
+
+Scheduled monitoring (optional, unattended)
+   -> every N minutes, or at fixed daily times: re-run the same analysis
+   -> compare with the previous scan: which findings are new, which are resolved
+   -> only if something changed: Slack alert + Google Sheets rows
+   -> never opens a PR on its own
 ```
 
 Every step is recorded in an execution trace shown in the UI (`Repository discovered -> Lockfile found -> Dependencies parsed -> OSV query -> deps.dev query -> EOL check -> LLM manifest parsing -> Decision made -> Safety check -> Branch created -> Files updated -> Commit created -> PR created -> Sheets updated -> Slack sent -> Final result`, repeated per ecosystem where applicable), so every claim on screen is traceable to an actual step DepGuard ran.
@@ -73,15 +81,15 @@ Five formats (`pom.xml`, `build.gradle`, `Pipfile.lock`, `pyproject.toml`, `*.cs
 2. `version` must be a concrete literal (regex check; rejects placeholders/ranges).
 3. `name@version` must exist in the real, live package registry — keyless public APIs: PyPI, crates.io, RubyGems, Packagist, Maven Central, plus NuGet and the Go module proxy (added here since the LLM path can plausibly hit `NuGet`/`Go`-shaped inputs too).
 
-Findings that survive verification are always `DETECTION_ONLY` (see the remediation boundary above), and every rejected candidate is counted and shown, not silently dropped — see `llm_manifest_summary` in the `/api/analyze` response and the reliability panel.
+Findings that survive verification are always `DETECTION_ONLY` (see the remediation boundary above), and every rejected candidate is counted and shown, not silently dropped — see `llm_manifest_summary` in the `/api/analyze` response and the dashboard's LLM Manifest Agent panel.
 
 ## Integrations
 
 | # | Integration | Role | Type |
 |---|---|---|---|
 | 1 | **GitHub** | Read repo/lockfile, create branch, patch files, commit, open PR | Action (write) |
-| 2 | **Slack** | Notify the team when a remediation completes (user's own workspace via OAuth "Connect Slack", or a server-configured webhook) | Action (write) |
-| 3 | **Google Sheets** | Append-only remediation log (a fresh sheet in the user's own Drive via OAuth "Connect Google Sheets", or a server-configured service account) | Action (write) |
+| 2 | **Slack** | Notify the team when a remediation completes or a scheduled scan finds changes (user's own workspace via OAuth "Connect Slack", or a server-configured webhook) | Action (write) |
+| 3 | **Google Sheets** | Append-only log of remediations and scheduled-scan changes (a fresh sheet in the user's own Drive via OAuth "Connect Google Sheets", or a server-configured service account) | Action (write) |
 | 4 | **OSV.dev** | Ground truth for vulnerability existence + fixed versions | Intelligence (read) |
 | 5 | **deps.dev** | SPDX license metadata for direct dependencies | Intelligence (read) |
 | 6 | **endoflife.date** | Node.js runtime support/EOL status | Intelligence (read) |
@@ -101,6 +109,8 @@ DepGuard does **not** ask an LLM whether a package is vulnerable, in any ecosyst
 - **License conflict is a signal, not a verdict**: a small SPDX allow/deny list (`policy.PERMISSIVE_LICENSES` / `policy.COPYLEFT_LICENSES`) flags a permissive-project + copyleft-dependency combination for human/legal review. **This is not legal advice** and does not attempt a general license-compatibility engine.
 - **EOL is informational**: Node.js EOL/nearing-EOL findings are surfaced but never trigger an automatic code change.
 - **Bundled PR = union of auto-approved findings only**: "Create Remediation PR" opens one PR covering every finding that individually cleared every bar above, across every ecosystem in one branch/commit set; anything that didn't clear the bar is listed as skipped/needs-review/detection-only in the same response, never silently dropped.
+- **No duplicate PRs**: before creating a branch, DepGuard checks whether an open PR already exists for the exact same set of fixes. If it does, that PR is returned and nothing new is created.
+- **A human opens every PR**: scheduled monitoring re-scans and alerts on its own, but it can never open a pull request.
 
 ## Reliability & Evaluation
 
@@ -114,12 +124,18 @@ Reliability is a first-class feature, not an afterthought. [`eval/gold_set.json`
 
 Last recorded run (see the in-app "Reliability & Evaluation" panel for a live re-run): **33/33 cases passed, 100% accuracy, 100% precision/recall on vulnerability detection, 0 unsafe automatic upgrades.**
 
+**Scheduled monitoring is not part of the 33 cases**; it was verified separately, and those results are not included in the numbers above:
+- Next-run times were unit-tested: same-day and next-day daily times, a scan landing exactly on a scheduled time, and rejection of invalid times.
+- Change detection was run against the live demo repo with a simulated previous scan. It reported exactly one new and one resolved finding, and on the next run reported no change.
+- A real 1-minute schedule on the running server sent its baseline alert to Slack and Sheets. A minute later it scanned again with no one clicking and correctly sent nothing, because nothing had changed.
+
 Real bugs found and fixed during the build, all documented in the commit history:
 - A policy bug where DepGuard would pick a fix version that satisfied only the cheapest of several advisories (fixed by taking the max of each advisory's own minimum fix).
 - A stale assumption in the gold set itself — `lodash@4.17.21`, long treated as "the patched version," turned out to have a real, newly published OSV.dev advisory (`GHSA-f23m-r3pf-42rh`, fixed in 4.18.0). That case is kept in the gold set on purpose, as proof the system reasons from live data rather than memorized versions.
 - (Caught by manual live testing, not the harness itself, but worth naming): `is_direct` was originally computed by checking presence in the npm lockfile, which is wrong for lockfileVersion 3 — transitive packages appear there too. Fixed to check the manifest's declared dependencies instead.
 - OSV advisories for PyPI/RubyGems/Packagist often use range type `ECOSYSTEM` instead of `SEMVER`, and the fixed-version extractor was silently ignoring them — so real fixes (e.g. `flask 2.0.0 → 3.1.3`) showed up as "no fix available." Fixed, and `flask` is now a gold-set case.
 - Clicking "Create Remediation PR" again while a PR for the same dependency set was still open caused a GitHub `409 Conflict`: DepGuard tried to patch the already-patched branch using stale file SHAs. It now detects the open PR and returns it instead of touching the branch. Separately, GitHub sometimes returns a one-off `409`/`5xx` on reads, so those requests now retry briefly.
+- In that reuse case, the dashboard still ticked "Branch created / Files updated / Commit created" even though nothing new had been created. The API now returns `reused_existing_pr`, and the dashboard says an existing PR was reused.
 
 All numbers shown anywhere in the app are computed from an actual run in that process; nothing is hardcoded.
 
@@ -146,11 +162,15 @@ uvicorn app.main:app --port 8010
 
 Open `http://localhost:8010/`. Use port 8010 (or change `OAUTH_REDIRECT_BASE` and both OAuth redirect URIs to match another port) — OAuth providers require the redirect URI to match exactly.
 
+Restarting the server clears OAuth connections and schedules (both are held in memory), so reconnect Slack/Google and recreate schedules afterwards.
+
 ### Try it against the demo repo
 
 Analyze **https://github.com/priyanshiiitr/depguard-demo-vulnerable** (source also mirrored in [`demo-repo-vulnerable/`](demo-repo-vulnerable/)) — it deliberately pins vulnerable dependencies across three ecosystems: `lodash@4.17.15`, `minimist@1.2.5`, `axios@0.21.0` (npm), `flask@2.0.0` (`requirements.txt`, PyPI), and a `pom.xml` containing `commons-collections@3.2.1` (the CVE-2015-4852 deserialization RCE) alongside a dependency whose version is deliberately left to a Spring Boot parent POM with no literal in the file — plus a Node.js `engines` range that is already end-of-life.
 
 This exact flow was run for real while building DepGuard: analysis correctly found auto-remediable npm+PyPI vulnerabilities, a transitive npm vulnerability routed to human review, a `DETECTION_ONLY` Maven finding (extracted by the LLM agent and independently verified against Maven Central), and an informational EOL flag — and clicking "Create Remediation PR" opened a real pull request bundling every auto-fixable change into one branch, appended real rows to Google Sheets (including the detection-only finding), and delivered a real Slack notification.
+
+Because every run proposes the same fixes for this repo, a new PR is only created when no DepGuard PR for them is open. Close or merge the previous one first if you want to watch a fresh PR being created.
 
 ## Using the Dashboard
 
@@ -161,8 +181,9 @@ This exact flow was run for real while building DepGuard: analysis correctly fou
    - **LLM Manifest Agent Activity**: shown only when an LLM-parsed file was present. Lists each file the LLM read, with counts of dependencies extracted, verified, and rejected, plus the reason for each rejection.
    - **Findings**: grouped by ecosystem, with counts of auto-fixable, needs-review, detection-only, and informational findings. Findings that came from the LLM path are tagged 🤖 LLM.
    - **Agent Execution Trace**: a timeline of every step DepGuard ran. LLM steps are highlighted.
-4. **Create Remediation PR**: opens one real PR for all auto-fixable findings, then shows a checklist (branch, files, commit, PR, Sheets, Slack) with a link to the PR. If a PR for the same fixes is already open, DepGuard returns that PR instead of creating a duplicate.
-5. **Run Evaluation Suite**: re-runs all 33 gold-set cases live and shows accuracy, precision/recall, and unsafe auto-upgrade count.
+4. **Create Remediation PR**: opens one real PR for all auto-fixable findings, then shows a checklist (branch, files, commit, PR, Sheets, Slack) with a link to the PR. If an open PR already contains the same fixes, DepGuard doesn't create a duplicate. It links that PR, says nothing new was created, and tells you to merge or close it first if you want a fresh one.
+5. **Scheduled Monitoring**: have DepGuard re-scan the repo on its own. See the next section.
+6. **Run Evaluation Suite**: re-runs all 33 gold-set cases live and shows accuracy, precision/recall, and unsafe auto-upgrade count.
 
 ## Scheduled Monitoring
 
@@ -221,7 +242,7 @@ All secrets are read server-side only (`backend/app/config.py`) and never sent t
 - Scheduled monitoring only analyzes and alerts, and can never open a pull request. A GitHub token given when creating a schedule is kept in memory for that schedule only and is never returned by the API.
 - Ground truth for "is this vulnerable" and "what version fixes it" always comes from OSV.dev, never from an LLM guess — in any ecosystem, including the ones whose *extraction* involves an LLM (see "The LLM Manifest Agent" above). The LLM's output is treated as untrusted input and independently verified against the source file and the real package registry before it can influence anything.
 - When the system cannot confidently establish a safe remediation (no fixed version, unparsable versions, transitive-only fix, a version that wouldn't satisfy every known advisory, or an ecosystem with no remediation path built) it marks the finding `NEEDS_REVIEW` or `DETECTION_ONLY` and does not open an automatic PR for it — and never drops it from the UI, PR body, Sheets, or Slack just because no code change was made.
-- Every action reported in the UI (branch created, files updated, commit created, PR opened, Sheets updated, Slack sent) reflects the real status of that external call; a failed Slack post or Sheets write is shown as failed/skipped, never as a fabricated success.
+- Every action reported in the UI (branch created, files updated, commit created, PR opened, Sheets updated, Slack sent) reflects the real status of that external call. A failed Slack post or Sheets write is shown as failed or skipped, never as a fabricated success, and a reused PR is reported as reused rather than as a new branch and commit.
 - No CVE, PR URL, Slack message, Sheets row, or evaluation score in this project is fabricated — everything shown was produced by an actual run of the system against live external services, including the LLM-derived findings (each one traceable to a real registry hit and a real, verbatim line in the source file).
 
 ---
