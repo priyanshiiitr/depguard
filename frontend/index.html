@@ -154,6 +154,16 @@
 
   .footer-note { text-align: center; color: var(--muted); font-size: 12px; margin-top: 30px; }
 
+  .connect-row { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 6px; }
+  .connect-tile { flex: 1; min-width: 220px; background: var(--panel2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .connect-tile.is-connected { border-color: rgba(77,208,160,0.4); background: linear-gradient(180deg, rgba(77,208,160,0.06), var(--panel2)); }
+  .connect-tile-head { display: flex; align-items: center; gap: 10px; }
+  .connect-icon { font-size: 22px; }
+  .connect-name { font-weight: 800; font-size: 14.5px; }
+  .connect-status { font-size: 12px; margin-top: 2px; }
+  .connect-status.connected { color: var(--ok); font-weight: 600; }
+  .connect-tile button.connected { background: rgba(77,208,160,0.14); border-color: rgba(77,208,160,0.4); color: var(--ok); }
+
   @media (max-width: 560px) {
     .hero { flex-direction: column; align-items: flex-start; }
     .tagline { margin-left: 0; }
@@ -171,6 +181,33 @@
     <h1>DepGuard</h1>
   </div>
   <p class="tagline">AI Dependency Risk &amp; License-Conflict Triage Agent &mdash; 6 ecosystems, deterministic decisions, real GitHub actions</p>
+
+  <div class="card">
+    <h2>Connect Your Tools <span class="h2-sub">optional &mdash; bring your own Slack workspace and Google account</span></h2>
+    <div class="connect-row">
+      <div class="connect-tile" id="slackTile">
+        <div class="connect-tile-head">
+          <span class="connect-icon">&#128172;</span>
+          <div>
+            <div class="connect-name">Slack</div>
+            <div class="connect-status muted" id="slackStatus">Not connected</div>
+          </div>
+        </div>
+        <button class="secondary" id="slackConnectBtn" onclick="connectSlack()">Connect Slack</button>
+      </div>
+      <div class="connect-tile" id="googleTile">
+        <div class="connect-tile-head">
+          <span class="connect-icon">&#128203;</span>
+          <div>
+            <div class="connect-name">Google Sheets</div>
+            <div class="connect-status muted" id="googleStatus">Not connected</div>
+          </div>
+        </div>
+        <button class="secondary" id="googleConnectBtn" onclick="connectGoogle()">Connect Google Sheets</button>
+      </div>
+    </div>
+    <div class="token-note">When connected, remediation notifications/logs go to <em>your</em> Slack workspace and a fresh spreadsheet in <em>your</em> Google Drive instead of this server's defaults. OAuth tokens live in server memory only for this session &mdash; nothing is written to disk.</div>
+  </div>
 
   <div class="card">
     <h2>Analyze a GitHub repository</h2>
@@ -265,6 +302,55 @@ function ecoIcon(eco) { return ECO_ICONS[eco] || "\u{1F4C1}"; }
 function badge(text, cls) {
   return `<span class="badge ${cls || text}">${text}</span>`;
 }
+
+function connectSlack() {
+  window.open('/oauth/slack/start', 'depguard-oauth-slack', 'width=520,height=650');
+}
+function connectGoogle() {
+  window.open('/oauth/google/start', 'depguard-oauth-google', 'width=520,height=650');
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data && e.data.source === 'depguard-oauth') {
+    refreshConnections();
+  }
+});
+
+async function refreshConnections() {
+  try {
+    const res = await fetch(`${API}/api/connections`);
+    const data = await res.json();
+
+    const slackTile = document.getElementById('slackTile');
+    const slackStatus = document.getElementById('slackStatus');
+    const slackBtn = document.getElementById('slackConnectBtn');
+    if (data.slack.connected) {
+      slackTile.classList.add('is-connected');
+      slackStatus.textContent = `Connected — ${data.slack.team} (${data.slack.channel})`;
+      slackStatus.className = 'connect-status connected';
+      slackBtn.textContent = 'Reconnect';
+      slackBtn.className = 'secondary connected';
+    } else if (!data.slack.available) {
+      slackBtn.disabled = true;
+      slackStatus.textContent = 'Not configured on this server';
+    }
+
+    const googleTile = document.getElementById('googleTile');
+    const googleStatus = document.getElementById('googleStatus');
+    const googleBtn = document.getElementById('googleConnectBtn');
+    if (data.google.connected) {
+      googleTile.classList.add('is-connected');
+      googleStatus.innerHTML = `Connected — <a href="${data.google.sheet_url}" target="_blank">open sheet</a>`;
+      googleStatus.className = 'connect-status connected';
+      googleBtn.textContent = 'Reconnect';
+      googleBtn.className = 'secondary connected';
+    } else if (!data.google.available) {
+      googleBtn.disabled = true;
+      googleStatus.textContent = 'Not configured on this server';
+    }
+  } catch (e) { /* non-fatal: connection panel just stays at defaults */ }
+}
+refreshConnections();
 
 function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));

@@ -1,7 +1,25 @@
+import asyncio
 import base64
 import re
 import httpx
 from .. import config
+
+_TRANSIENT_STATUS = {409, 500, 502, 503, 504}
+
+
+async def _get_with_retry(client: httpx.AsyncClient, url: str, params: dict | None = None, retries: int = 2) -> httpx.Response:
+    """GitHub occasionally returns a transient 409/5xx on GET (e.g. during an
+    eventual-consistency window right after a push) that succeeds on immediate
+    retry. One short retry here avoids surfacing that as a user-facing error."""
+    last_response = None
+    for attempt in range(retries + 1):
+        r = await client.get(url, params=params)
+        if r.status_code not in _TRANSIENT_STATUS:
+            return r
+        last_response = r
+        if attempt < retries:
+            await asyncio.sleep(0.6 * (attempt + 1))
+    return last_response
 
 
 class GitHubError(Exception):
@@ -35,7 +53,7 @@ class GitHubClient:
         await self.client.aclose()
 
     async def get_repo(self, owner: str, repo: str) -> dict:
-        r = await self.client.get(f"/repos/{owner}/{repo}")
+        r = await _get_with_retry(self.client, f"/repos/{owner}/{repo}")
         if r.status_code == 404:
             raise GitHubError("Repository not found (or private without access).")
         if r.status_code == 403:
@@ -56,7 +74,7 @@ class GitHubClient:
 
     async def get_file(self, owner: str, repo: str, path: str, ref: str):
         """Returns (content_str, sha) or (None, None) if the file does not exist."""
-        r = await self.client.get(f"/repos/{owner}/{repo}/contents/{path}", params={"ref": ref})
+        r = await _get_with_retry(self.client, f"/repos/{owner}/{repo}/contents/{path}", params={"ref": ref})
         if r.status_code == 404:
             return None, None
         if r.status_code == 403:
@@ -71,13 +89,30 @@ class GitHubClient:
         r.raise_for_status()
         return r.json()["object"]["sha"]
 
+    async def find_open_pr_for_branch(self, owner: str, repo: str, branch: str, base: str) -> str | None:
+        """Returns the URL of an already-open PR for this exact branch, if one exists."""
+        r = await self.client.get(f"/repos/{owner}/{repo}/pulls", params={"state": "open", "head": f"{owner}:{branch}", "base": base})
+        if r.status_code != 200:
+            return None
+        items = r.json()
+        return items[0]["html_url"] if items else None
+
     async def create_branch(self, owner: str, repo: str, new_branch: str, base_sha: str):
         r = await self.client.post(
             f"/repos/{owner}/{repo}/git/refs",
             json={"ref": f"refs/heads/{new_branch}", "sha": base_sha},
         )
         if r.status_code == 422:
-            # branch already exists - reuse it
+            # Branch already exists. Caller (remediator.py) has already confirmed there is no
+            # OPEN PR for it before reaching here, so it's safe to assume this is a stale/orphaned
+            # branch (e.g. from a previously closed test run) and reset it to base_sha -- otherwise
+            # its files would carry SHAs from whatever it was last patched to, and the next
+            # update_file() call would fail with a genuine 409 (SHA mismatch), not a transient error.
+            reset = await self.client.patch(
+                f"/repos/{owner}/{repo}/git/refs/heads/{new_branch}",
+                json={"sha": base_sha, "force": True},
+            )
+            reset.raise_for_status()
             return
         if r.status_code == 403:
             raise GitHubError("GitHub token lacks permission to create a branch (needs Contents: Read and write).")

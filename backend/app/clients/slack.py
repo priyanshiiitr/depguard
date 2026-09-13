@@ -2,12 +2,15 @@ import httpx
 from .. import config
 
 
-async def send_remediation_notification(repo: str, changes: list[dict], pr_url: str | None, overall_risk: str, detection_only: list[dict] | None = None) -> bool:
+async def send_remediation_notification(repo: str, changes: list[dict], pr_url: str | None, overall_risk: str, detection_only: list[dict] | None = None, webhook_url: str | None = None) -> bool:
     """changes: [{"dependency", "old_version", "new_version", "risk"}]
     detection_only: findings from ecosystems DepGuard can detect but not yet auto-fix --
     surfaced here rather than silently dropped just because they aren't in the PR.
+    webhook_url: per-connection override (e.g. from the OAuth "Connect Slack" flow),
+    takes precedence over the server's SLACK_WEBHOOK_URL env var.
     Returns True if the Slack message was accepted, False otherwise (never raises)."""
-    if not config.SLACK_WEBHOOK_URL:
+    target_webhook = webhook_url or config.SLACK_WEBHOOK_URL
+    if not target_webhook:
         return False
 
     lines = ["*DepGuard completed a dependency remediation.*" if changes else "*DepGuard analysis found advisories requiring manual review.*"]
@@ -29,7 +32,7 @@ async def send_remediation_notification(repo: str, changes: list[dict], pr_url: 
     payload = {"text": "\n".join(lines)}
     try:
         async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(config.SLACK_WEBHOOK_URL, json=payload)
+            r = await client.post(target_webhook, json=payload)
             return r.status_code == 200
     except httpx.HTTPError:
         return False

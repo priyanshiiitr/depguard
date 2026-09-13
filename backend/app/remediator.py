@@ -1,6 +1,6 @@
 import asyncio
 
-from . import lockfile, policy
+from . import lockfile, policy, oauth
 from .analyzer import ANALYSIS_CACHE
 from .clients.github import GitHubClient, GitHubError, parse_repo_url
 from .clients.npm_registry import NpmRegistryClient
@@ -74,6 +74,22 @@ async def remediate_repo(repo_url: str, github_token: str | None = None) -> dict
     branch_name = f"depguard/fix-{dep_slug}"
 
     try:
+        existing_pr_url = await gh.find_open_pr_for_branch(owner, repo, branch_name, default_branch)
+        if existing_pr_url:
+            _step(trace, "Branch created", "SKIPPED", f"An open PR already exists for this exact dependency set: {existing_pr_url}")
+            _step(trace, "Final result", "SUCCESS", f"Reusing existing PR: {existing_pr_url}")
+            return {
+                "repo": full_name,
+                "status": "SUCCESS",
+                "branch": branch_name,
+                "pr_url": existing_pr_url,
+                "remediated": [f["dependency"] for f in auto_findings],
+                "skipped": [f["dependency"] for f in findings if f["recommended_action"] != "AUTO_REMEDIATE"],
+                "trace": trace,
+                "sheets_updated": False,
+                "slack_sent": False,
+            }
+
         try:
             base_sha = await gh.get_ref_sha(owner, repo, default_branch)
             await gh.create_branch(owner, repo, branch_name, base_sha)
@@ -209,17 +225,25 @@ async def remediate_repo(repo_url: str, github_token: str | None = None) -> dict
                 }
                 for f in detection_only
             ]
-            sheets_updated = await asyncio.to_thread(sheets.append_remediation_rows, rows)
+            google_creds, google_sheet_id = oauth.get_google_override()
+            sheets_updated = await asyncio.to_thread(sheets.append_remediation_rows, rows, google_creds, google_sheet_id)
+            sheets_detail = "Remediation log appended to Google Sheets"
+            if sheets_updated and google_creds:
+                sheets_detail += " (via your connected Google account)"
             _step(trace, "Sheets updated", "SUCCESS" if sheets_updated else "SKIPPED",
-                  "Remediation log appended to Google Sheets" if sheets_updated else "Google Sheets not configured or write failed")
+                  sheets_detail if sheets_updated else "Google Sheets not configured or write failed")
         except Exception as e:
             _step(trace, "Sheets updated", "FAILED", str(e))
 
         slack_sent = False
         try:
-            slack_sent = await slack.send_remediation_notification(full_name, changes, pr_url, overall_risk, detection_only=detection_only)
+            slack_webhook_override = oauth.get_slack_webhook_override()
+            slack_sent = await slack.send_remediation_notification(full_name, changes, pr_url, overall_risk, detection_only=detection_only, webhook_url=slack_webhook_override)
+            slack_detail = "Slack notification delivered"
+            if slack_sent and slack_webhook_override:
+                slack_detail += " (via your connected Slack workspace)"
             _step(trace, "Slack sent", "SUCCESS" if slack_sent else "SKIPPED",
-                  "Slack notification delivered" if slack_sent else "Slack webhook not configured or delivery failed")
+                  slack_detail if slack_sent else "Slack webhook not configured or delivery failed")
         except Exception as e:
             _step(trace, "Slack sent", "FAILED", str(e))
 
@@ -259,7 +283,8 @@ async def _log_detection_only_only(full_name: str, detection_only: list, trace: 
             }
             for f in detection_only
         ]
-        sheets_updated = await asyncio.to_thread(sheets.append_remediation_rows, rows)
+        google_creds, google_sheet_id = oauth.get_google_override()
+        sheets_updated = await asyncio.to_thread(sheets.append_remediation_rows, rows, google_creds, google_sheet_id)
         _step(trace, "Sheets updated", "SUCCESS" if sheets_updated else "SKIPPED",
               "Detection-only findings logged to Google Sheets" if sheets_updated else "Google Sheets not configured or write failed")
     except Exception as e:
@@ -268,7 +293,8 @@ async def _log_detection_only_only(full_name: str, detection_only: list, trace: 
     slack_sent = False
     try:
         overall_risk = policy.max_risk([f["risk"] for f in detection_only])
-        slack_sent = await slack.send_remediation_notification(full_name, [], None, overall_risk, detection_only=detection_only)
+        slack_webhook_override = oauth.get_slack_webhook_override()
+        slack_sent = await slack.send_remediation_notification(full_name, [], None, overall_risk, detection_only=detection_only, webhook_url=slack_webhook_override)
         _step(trace, "Slack sent", "SUCCESS" if slack_sent else "SKIPPED",
               "Slack notification delivered" if slack_sent else "Slack webhook not configured or delivery failed")
     except Exception as e:
