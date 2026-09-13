@@ -83,6 +83,7 @@ async def remediate_repo(repo_url: str, github_token: str | None = None) -> dict
                 "status": "SUCCESS",
                 "branch": branch_name,
                 "pr_url": existing_pr_url,
+                "reused_existing_pr": True,
                 "remediated": [f["dependency"] for f in auto_findings],
                 "skipped": [f["dependency"] for f in findings if f["recommended_action"] != "AUTO_REMEDIATE"],
                 "trace": trace,

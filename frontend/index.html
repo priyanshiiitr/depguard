@@ -647,6 +647,20 @@ function renderRemediation(data) {
   const section = document.getElementById('remediationSection');
   section.classList.remove('hidden');
   const checklist = document.getElementById('remediationChecklist');
+
+  if (data.reused_existing_pr) {
+    // Nothing new was created, so don't tick boxes for steps that never ran.
+    checklist.innerHTML = `
+      <li><span class="check-icon done">✓</span>Found an open PR that already contains these exact fixes</li>
+      <li><span class="check-icon pending">○</span>No new branch, commit, or PR created (prevents a duplicate PR)</li>`;
+    document.getElementById('prLinkBox').innerHTML = `
+      <p>Already open: <a href="${data.pr_url}" target="_blank">${esc(data.pr_url)}</a></p>
+      <p class="muted">To open a fresh PR, merge or close that one on GitHub, then click Create Remediation PR again.</p>`;
+    appendTraceSteps(data.trace);
+    section.scrollIntoView({behavior: 'smooth', block: 'start'});
+    return;
+  }
+
   const items = [
     ['Branch created', !!data.branch],
     ['Files updated', data.remediated.length > 0],
