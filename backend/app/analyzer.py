@@ -1,7 +1,7 @@
 import asyncio
 from datetime import datetime, timezone
 
-from . import lockfile, policy
+from . import lockfile, policy, llm_parser, config
 from .parsers import FILENAME_TO_PARSER
 from .clients.github import GitHubClient, GitHubError, parse_repo_url
 from .clients.osv import OSVClient
@@ -10,6 +10,16 @@ from .clients.eol import EOLClient, extract_major_version, classify_eol
 
 # In-memory cache: "owner/repo" -> raw analysis context needed for remediation.
 ANALYSIS_CACHE: dict = {}
+
+# Manifest files with no deterministic parser -- handled by the LLM Manifest Agent
+# (backend/app/llm_parser.py) instead, gated behind three deterministic verification
+# checks before anything from them reaches the OSV/policy pipeline.
+LLM_ONLY_FILES = {
+    "pom.xml": "Maven",
+    "build.gradle": "Maven",
+    "Pipfile.lock": "PyPI",
+    "pyproject.toml": "PyPI",
+}
 
 MAX_OSV_QUERIES = 300  # keep each ecosystem's batch call fast and within OSV limits
 
@@ -316,13 +326,114 @@ async def analyze_repo(repo_url: str) -> dict:
                     **decision,
                 })
 
+        # ==================== LLM Manifest Agent (extraction only) ====================
+        # For manifest formats with no deterministic parser. The LLM only proposes
+        # {ecosystem, name, version, raw_line} candidates; every candidate must pass
+        # three deterministic checks (verbatim raw_line, concrete version, real
+        # registry entry) before it reaches OSV/policy. The LLM never decides
+        # vulnerability or a fix version -- policy.py does that, unchanged, same as
+        # every other ecosystem. Findings from here are always DETECTION_ONLY: no
+        # remediation path has been built for these formats yet.
+        llm_candidates = list(LLM_ONLY_FILES.items())
+        try:
+            root_files = await gh.list_root_files(owner, repo, default_branch)
+            for name in root_files:
+                if name.endswith(".csproj"):
+                    llm_candidates.append((name, "NuGet"))
+        except Exception:
+            pass
+
+        llm_summary = []  # [{"file", "ecosystem", "extracted", "verified", "rejected": [...]}]
+        for filename, ecosystem in llm_candidates:
+            content, _sha = await gh.get_file(owner, repo, filename, default_branch)
+            if content is None:
+                continue
+
+            if not config.GROQ_API_KEY:
+                _step(trace, "LLM manifest parsing", "SKIPPED", f"{filename} detected but GROQ_API_KEY is not configured; not analyzed.")
+                continue
+
+            result = await llm_parser.extract_and_verify(filename, content)
+            llm_summary.append({
+                "file": filename, "ecosystem": ecosystem,
+                "extracted": result["extracted"], "verified": len(result["verified"]), "rejected": result["rejected"],
+            })
+            for rej in result["rejected"]:
+                skipped_dependencies.append({"ecosystem": ecosystem, "file": filename, "raw": rej["raw"], "reason": rej["reason"]})
+
+            deps = result["verified"]
+            _step(
+                trace, "LLM manifest parsing", "SUCCESS",
+                f"{filename} ({ecosystem}): {result['extracted']} candidate(s) extracted, {len(deps)} verified, {len(result['rejected'])} rejected",
+            )
+            if not deps:
+                continue
+
+            pairs_list = deps[:MAX_OSV_QUERIES]
+            ecosystems_detected.append(ecosystem)
+            total_dependency_count += len(deps)
+            total_direct_dependency_count += len(deps)
+
+            try:
+                batch_results = await osv.query_batch(
+                    [{"name": d.name, "version": d.version, "ecosystem": d.ecosystem} for d in pairs_list]
+                )
+            except Exception as e:
+                _step(trace, "OSV query", "FAILED", f"OSV.dev query failed ({ecosystem}, LLM-derived): {e}")
+                batch_results = [{} for _ in pairs_list]
+            else:
+                vuln_count = sum(1 for r in batch_results if r.get("vulns"))
+                _step(trace, "OSV query", "SUCCESS", f"{ecosystem} (LLM-derived, {filename}): queried {len(pairs_list)} packages; {vuln_count} have known advisories")
+
+            vulnerable = []
+            for d, result_ in zip(pairs_list, batch_results):
+                vuln_ids = [v["id"] for v in result_.get("vulns", [])]
+                if vuln_ids:
+                    vulnerable.append((d, vuln_ids))
+
+            unique_ids = sorted({vid for _, ids in vulnerable for vid in ids})
+            vuln_records = {}
+            for vid in unique_ids:
+                try:
+                    vuln_records[vid] = await osv.get_vuln(vid)
+                except Exception:
+                    continue
+
+            for d, vuln_ids in vulnerable:
+                records = [vuln_records[v] for v in vuln_ids if v in vuln_records]
+                if not records:
+                    continue
+                decision = policy.decide_vulnerability(d.name, d.version, True, records, ecosystem=d.ecosystem)
+                if decision["recommended_action"] == "AUTO_REMEDIATE":
+                    decision = dict(decision)
+                    decision["recommended_action"] = "DETECTION_ONLY"
+                    decision["reason"] = (
+                        decision["reason"] + " Advisory detected -- manual upgrade required "
+                        "(this dependency was extracted by the LLM manifest agent; no automatic remediation path exists for it yet)."
+                    )
+                fid += 1
+                findings.append({
+                    "id": f"vuln-{fid}",
+                    "type": "VULNERABILITY",
+                    "ecosystem": d.ecosystem,
+                    "dependency": d.name,
+                    "current_version": d.version,
+                    "is_direct": True,
+                    "raw_line": d.raw_line,
+                    "source": "llm",
+                    **decision,
+                })
+
         if not ecosystems_detected:
             msg = (
                 "No supported manifest/lockfile found (package.json+package-lock.json, "
-                "requirements.txt, Cargo.lock, go.sum, composer.lock, or Gemfile.lock)."
+                "requirements.txt, Cargo.lock, go.sum, composer.lock, Gemfile.lock, or an "
+                "LLM-parseable manifest such as pom.xml/build.gradle/Pipfile.lock/pyproject.toml/*.csproj)."
             )
             _step(trace, "Dependencies parsed", "FAILED", msg)
             raise AnalysisError(msg, trace)
+
+        ecosystems_detected = list(dict.fromkeys(ecosystems_detected))  # dedupe, preserve order
 
         overall_risk = policy.max_risk([f["risk"] for f in findings]) if findings else "NONE"
         _step(
@@ -349,6 +460,7 @@ async def analyze_repo(repo_url: str) -> dict:
             "ecosystems_detected": ecosystems_detected,
             "findings": findings,
             "skipped_dependencies": skipped_dependencies,
+            "llm_manifest_summary": llm_summary,
             "overall_risk": overall_risk,
             "trace": trace,
             "analyzed_at": datetime.now(timezone.utc).isoformat(),

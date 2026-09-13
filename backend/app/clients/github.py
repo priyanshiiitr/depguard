@@ -39,6 +39,17 @@ class GitHubClient:
         r.raise_for_status()
         return r.json()
 
+    async def list_root_files(self, owner: str, repo: str, ref: str) -> list[str]:
+        """Returns filenames (not directories) at the repo root. Used only to find
+        wildcard-named files (e.g. *.csproj) that can't be looked up by exact path."""
+        r = await self.client.get(f"/repos/{owner}/{repo}/contents/", params={"ref": ref})
+        if r.status_code != 200:
+            return []
+        items = r.json()
+        if not isinstance(items, list):
+            return []
+        return [item["name"] for item in items if item.get("type") == "file"]
+
     async def get_file(self, owner: str, repo: str, path: str, ref: str):
         """Returns (content_str, sha) or (None, None) if the file does not exist."""
         r = await self.client.get(f"/repos/{owner}/{repo}/contents/{path}", params={"ref": ref})
