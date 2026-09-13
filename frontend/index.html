@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DepGuard</title>
+<style>
+  :root {
+    --bg: #0b0e14; --panel: #131722; --panel2: #1a1f2e; --border: #262c3d;
+    --text: #e6e9f2; --muted: #8b93a7; --accent: #5b8cff;
+    --crit: #ff4d5e; --high: #ff9142; --mod: #ffd23f; --low: #4dd0a0; --none: #4dd0a0;
+    --ok: #4dd0a0; --fail: #ff4d5e; --review: #ffd23f;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 4px; letter-spacing: -0.5px; }
+  .tagline { color: var(--muted); margin: 0 0 28px; font-size: 15px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 22px; margin-bottom: 20px;
+  }
+  .row { display: flex; gap: 10px; }
+  input[type=text] {
+    flex: 1; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 12px 14px; border-radius: 8px; font-size: 14px; outline: none;
+  }
+  input[type=text]:focus { border-color: var(--accent); }
+  button {
+    background: var(--accent); color: white; border: none; border-radius: 8px;
+    padding: 12px 20px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button:disabled { background: #3a4055; cursor: not-allowed; color: var(--muted); }
+  button.secondary { background: var(--panel2); border: 1px solid var(--border); color: var(--text); }
+  .example { color: var(--muted); font-size: 12px; margin-top: 8px; }
+  .hidden { display: none !important; }
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin-bottom: 4px; }
+  .stat { background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 14px; }
+  .stat .num { font-size: 22px; font-weight: 700; }
+  .stat .label { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: 0.3px; }
+  .badge.CRITICAL { background: rgba(255,77,94,0.18); color: var(--crit); }
+  .badge.HIGH { background: rgba(255,145,66,0.18); color: var(--high); }
+  .badge.MODERATE { background: rgba(255,210,63,0.18); color: var(--mod); }
+  .badge.LOW, .badge.NONE { background: rgba(77,208,160,0.18); color: var(--low); }
+  .badge.SUCCESS { background: rgba(77,208,160,0.18); color: var(--ok); }
+  .badge.FAILED { background: rgba(255,77,94,0.18); color: var(--fail); }
+  .badge.NEEDS_REVIEW { background: rgba(255,210,63,0.18); color: var(--review); }
+  .badge.SKIPPED { background: rgba(139,147,167,0.18); color: var(--muted); }
+  .badge.AUTO_REMEDIATE { background: rgba(91,140,255,0.18); color: var(--accent); }
+  .badge.INFORMATIONAL { background: rgba(139,147,167,0.18); color: var(--muted); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; }
+  .trace-list { list-style: none; margin: 0; padding: 0; }
+  .trace-list li { display: flex; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; align-items: flex-start; }
+  .trace-list li:last-child { border-bottom: none; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 5px; flex-shrink: 0; }
+  .dot.SUCCESS { background: var(--ok); }
+  .dot.FAILED { background: var(--fail); }
+  .dot.NEEDS_REVIEW { background: var(--review); }
+  .dot.SKIPPED { background: var(--muted); }
+  .step-name { font-weight: 600; min-width: 150px; }
+  .step-detail { color: var(--muted); }
+  h2 { font-size: 16px; margin: 0 0 16px; }
+  .error-box { background: rgba(255,77,94,0.1); border: 1px solid rgba(255,77,94,0.35); color: var(--crit); padding: 14px; border-radius: 8px; font-size: 14px; }
+  .checklist { list-style: none; padding: 0; margin: 0 0 14px; }
+  .checklist li { padding: 5px 0; font-size: 14px; }
+  .checklist li.done::before { content: "\2713  "; color: var(--ok); font-weight: 700; }
+  .checklist li.pending::before { content: "\25cb  "; color: var(--muted); }
+  a { color: var(--accent); }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 8px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .footer-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+  .muted { color: var(--muted); font-size: 13px; }
+  .eval-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 18px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>DepGuard</h1>
+  <p class="tagline">AI Dependency Risk &amp; License-Conflict Triage Agent</p>
+
+  <div class="card">
+    <h2>Analyze a GitHub repository</h2>
+    <div class="row">
+      <input type="text" id="repoUrl" placeholder="https://github.com/owner/repository" value="">
+      <button id="analyzeBtn" onclick="analyze()">Analyze Repository</button>
+    </div>
+    <div class="example">Example: https://github.com/owner/repository (must have package.json + package-lock.json)</div>
+    <div id="analyzeError" class="hidden" style="margin-top:14px"></div>
+  </div>
+
+  <div id="resultsSection" class="hidden">
+    <div class="card">
+      <h2>Repository Summary</h2>
+      <div class="stat-grid">
+        <div class="stat"><div class="num" id="statRepo">-</div><div class="label">Repository</div></div>
+        <div class="stat"><div class="num" id="statDeps">-</div><div class="label">Dependencies</div></div>
+        <div class="stat"><div class="num" id="statDirect">-</div><div class="label">Direct Dependencies</div></div>
+        <div class="stat"><div class="num" id="statFindings">-</div><div class="label">Findings</div></div>
+        <div class="stat"><div class="num"><span id="statRisk" class="badge">-</span></div><div class="label">Overall Risk</div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Findings &amp; Recommended Actions</h2>
+      <div id="noFindings" class="muted hidden">No actionable findings. This repository looks clean under DepGuard's current checks.</div>
+      <table id="findingsTable">
+        <thead><tr>
+          <th>Dependency</th><th>Current</th><th>Risk</th><th>Advisory</th><th>Min Safe</th><th>Reason</th><th>Action</th>
+        </tr></thead>
+        <tbody id="findingsBody"></tbody>
+      </table>
+      <div class="footer-actions">
+        <span class="muted" id="autoCountMsg"></span>
+        <button id="remediateBtn" onclick="remediate()" disabled>Create Remediation PR</button>
+      </div>
+      <div id="remediateError" class="hidden" style="margin-top:14px"></div>
+    </div>
+
+    <div id="remediationSection" class="card hidden">
+      <h2>Remediation Execution</h2>
+      <ul class="checklist" id="remediationChecklist"></ul>
+      <div id="prLinkBox"></div>
+    </div>
+
+    <div class="card">
+      <h2>Agent Execution Trace</h2>
+      <ul class="trace-list" id="traceList"></ul>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Reliability &amp; Evaluation</h2>
+    <p class="muted">Runs DepGuard's decision layer against a 20-case gold set (real OSV.dev / endoflife.date lookups plus deterministic policy-rule checks).</p>
+    <button class="secondary" onclick="runEval()" id="evalBtn">Run Evaluation Suite</button>
+    <div id="evalResults" style="margin-top:18px"></div>
+  </div>
+</div>
+
+<script>
+const API = "";
+let lastRepoUrl = "";
+
+function badge(text, cls) {
+  return `<span class="badge ${cls || text}">${text}</span>`;
+}
+
+function setLoading(btn, loading, label) {
+  btn.disabled = loading;
+  btn.innerHTML = loading ? `<span class="spinner"></span>${label}` : label;
+}
+
+async function analyze() {
+  const repoUrl = document.getElementById('repoUrl').value.trim();
+  const errBox = document.getElementById('analyzeError');
+  errBox.classList.add('hidden');
+  if (!repoUrl) { return; }
+  lastRepoUrl = repoUrl;
+
+  const btn = document.getElementById('analyzeBtn');
+  setLoading(btn, true, 'Analyzing...');
+  document.getElementById('resultsSection').classList.add('hidden');
+  document.getElementById('remediationSection').classList.add('hidden');
+
+  try {
+    const res = await fetch(`${API}/api/analyze`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({repo_url: repoUrl}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data.detail || {};
+      errBox.textContent = detail.error || 'Analysis failed.';
+      errBox.className = 'error-box';
+      if (detail.trace) renderTrace(detail.trace);
+      return;
+    }
+    renderAnalysis(data);
+  } catch (e) {
+    errBox.textContent = 'Network error contacting DepGuard backend: ' + e;
+    errBox.className = 'error-box';
+  } finally {
+    setLoading(btn, false, 'Analyze Repository');
+  }
+}
+
+function riskBadgeClass(risk) { return risk; }
+
+function renderAnalysis(data) {
+  document.getElementById('resultsSection').classList.remove('hidden');
+  document.getElementById('statRepo').textContent = data.repo;
+  document.getElementById('statDeps').textContent = data.dependency_count;
+  document.getElementById('statDirect').textContent = data.direct_dependency_count;
+  document.getElementById('statFindings').textContent = data.findings.length;
+  document.getElementById('statRisk').outerHTML = `<span id="statRisk" class="badge ${data.overall_risk}">${data.overall_risk}</span>`;
+
+  const tbody = document.getElementById('findingsBody');
+  tbody.innerHTML = '';
+  document.getElementById('noFindings').classList.toggle('hidden', data.findings.length > 0);
+  document.getElementById('findingsTable').classList.toggle('hidden', data.findings.length === 0);
+
+  let autoCount = 0;
+  for (const f of data.findings) {
+    if (f.recommended_action === 'AUTO_REMEDIATE') autoCount++;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><strong>${f.dependency}</strong><br><span class="muted">${f.type}${f.is_direct ? '' : ' (transitive)'}</span></td>
+      <td>${f.current_version || '-'}</td>
+      <td>${badge(f.risk)}</td>
+      <td>${f.advisory_id || '-'}</td>
+      <td>${f.min_safe_version || '-'}</td>
+      <td style="max-width:280px">${f.reason}</td>
+      <td>${badge(f.recommended_action)}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  const remediateBtn = document.getElementById('remediateBtn');
+  remediateBtn.disabled = autoCount === 0;
+  document.getElementById('autoCountMsg').textContent = autoCount > 0
+    ? `${autoCount} finding(s) eligible for automatic remediation.`
+    : 'No findings currently meet the bar for automatic remediation.';
+
+  renderTrace(data.trace);
+}
+
+function renderTrace(trace) {
+  const list = document.getElementById('traceList');
+  list.innerHTML = '';
+  for (const t of trace) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="dot ${t.status}"></span><span class="step-name">${t.step}</span><span class="step-detail">${t.detail}</span>`;
+    list.appendChild(li);
+  }
+}
+
+async function remediate() {
+  const errBox = document.getElementById('remediateError');
+  errBox.classList.add('hidden');
+  const btn = document.getElementById('remediateBtn');
+  setLoading(btn, true, 'Creating PR...');
+
+  try {
+    const res = await fetch(`${API}/api/remediate`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({repo_url: lastRepoUrl}),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const detail = data.detail || {};
+      errBox.textContent = detail.error || 'Remediation failed.';
+      errBox.className = 'error-box';
+      if (detail.trace) appendTraceSteps(detail.trace);
+      return;
+    }
+    renderRemediation(data);
+  } catch (e) {
+    errBox.textContent = 'Network error contacting DepGuard backend: ' + e;
+    errBox.className = 'error-box';
+  } finally {
+    setLoading(btn, false, 'Create Remediation PR');
+  }
+}
+
+function appendTraceSteps(steps) {
+  const list = document.getElementById('traceList');
+  for (const t of steps) {
+    const li = document.createElement('li');
+    li.innerHTML = `<span class="dot ${t.status}"></span><span class="step-name">${t.step}</span><span class="step-detail">${t.detail}</span>`;
+    list.appendChild(li);
+  }
+}
+
+function renderRemediation(data) {
+  const section = document.getElementById('remediationSection');
+  section.classList.remove('hidden');
+  const checklist = document.getElementById('remediationChecklist');
+  const items = [
+    ['Branch created', !!data.branch],
+    ['Files updated', data.remediated.length > 0],
+    ['Commit created', data.remediated.length > 0],
+    ['GitHub PR opened', !!data.pr_url],
+    ['Google Sheets updated', !!data.sheets_updated],
+    ['Slack notification sent', !!data.slack_sent],
+  ];
+  checklist.innerHTML = items.map(([label, done]) =>
+    `<li class="${done ? 'done' : 'pending'}">${label}</li>`
+  ).join('');
+
+  const prBox = document.getElementById('prLinkBox');
+  if (data.pr_url) {
+    prBox.innerHTML = `<p>Pull Request: <a href="${data.pr_url}" target="_blank">${data.pr_url}</a></p>`;
+  } else if (data.status === 'NEEDS_REVIEW') {
+    prBox.innerHTML = `<p class="muted">No PR was opened: no findings met the conservative bar for automatic remediation.</p>`;
+  }
+
+  // Append remediation trace steps onto the existing analysis trace for a full picture.
+  appendTraceSteps(data.trace);
+  section.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+async function runEval() {
+  const btn = document.getElementById('evalBtn');
+  setLoading(btn, true, 'Running...');
+  const box = document.getElementById('evalResults');
+  box.innerHTML = '';
+  try {
+    const res = await fetch(`${API}/api/eval`);
+    const data = await res.json();
+    box.innerHTML = `
+      <div class="eval-summary">
+        <div class="stat"><div class="num">${data.passed} / ${data.total_cases}</div><div class="label">Cases Passed</div></div>
+        <div class="stat"><div class="num">${(data.accuracy * 100).toFixed(0)}%</div><div class="label">Overall Accuracy</div></div>
+        <div class="stat"><div class="num">${data.vulnerability_detection_precision != null ? (data.vulnerability_detection_precision * 100).toFixed(0) + '%' : 'n/a'}</div><div class="label">Detection Precision</div></div>
+        <div class="stat"><div class="num">${data.vulnerability_detection_recall != null ? (data.vulnerability_detection_recall * 100).toFixed(0) + '%' : 'n/a'}</div><div class="label">Detection Recall</div></div>
+        <div class="stat"><div class="num">${data.unsafe_automatic_upgrades}</div><div class="label">Unsafe Auto-Upgrades</div></div>
+      </div>
+      <table>
+        <thead><tr><th>Case</th><th>Kind</th><th>Result</th><th>Expected</th><th>Actual</th></tr></thead>
+        <tbody>
+          ${data.results.map(r => `
+            <tr>
+              <td>${r.id}</td>
+              <td class="muted">${r.kind}</td>
+              <td>${badge(r.passed ? 'SUCCESS' : 'FAILED', r.passed ? 'SUCCESS' : 'FAILED')}</td>
+              <td class="muted">${JSON.stringify(r.expected)}</td>
+              <td class="muted">${JSON.stringify(r.actual)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+  } catch (e) {
+    box.innerHTML = `<div class="error-box">Failed to run evaluation: ${e}</div>`;
+  } finally {
+    setLoading(btn, false, 'Run Evaluation Suite');
+  }
+}
+</script>
+</body>
+</html>

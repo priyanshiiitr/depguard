@@ -1,0 +1,79 @@
+[
+  {"id": "vuln-lodash-old", "kind": "live_osv", "name": "lodash", "version": "4.17.15", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "4.17.19", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Prototype pollution, GHSA-p6mc-m468-83gw, fixed in 4.17.19."},
+
+  {"id": "vuln-lodash-recent-cve", "kind": "live_osv", "name": "lodash", "version": "4.17.21", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "4.18.0", "expect_action": "AUTO_REMEDIATE",
+   "notes": "4.17.21 was long considered 'fully patched' lodash, but OSV.dev now lists GHSA-f23m-r3pf-42rh (CVE-2025-13465/CVE-2026-2950), a prototype-pollution bypass fixed in 4.18.0. Kept in the gold set deliberately to prove DepGuard uses live OSV data rather than a stale hardcoded assumption."},
+
+  {"id": "vuln-minimist-old", "kind": "live_osv", "name": "minimist", "version": "1.2.5", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "1.2.6", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Prototype pollution CVE-2021-44906, fixed in 1.2.6."},
+
+  {"id": "vuln-axios-old", "kind": "live_osv", "name": "axios", "version": "0.21.0", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "0.21.1", "expect_action": "AUTO_REMEDIATE",
+   "notes": "SSRF CVE-2020-28168, fixed in 0.21.1."},
+
+  {"id": "vuln-json5-old", "kind": "live_osv", "name": "json5", "version": "1.0.1", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "1.0.2", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Prototype pollution CVE-2022-46175, fixed in 1.0.2."},
+
+  {"id": "vuln-glob-parent-old", "kind": "live_osv", "name": "glob-parent", "version": "5.1.1", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "5.1.2", "expect_action": "AUTO_REMEDIATE",
+   "notes": "ReDoS CVE-2020-28469, fixed in 5.1.2."},
+
+  {"id": "vuln-y18n-old", "kind": "live_osv", "name": "y18n", "version": "4.0.0", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "4.0.1", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Prototype pollution CVE-2020-7774, fixed in 4.0.1."},
+
+  {"id": "vuln-tar-old", "kind": "live_osv", "name": "tar", "version": "4.4.13", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "4.4.18", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Arbitrary file overwrite CVE-2021-32803, fixed in 4.4.18."},
+
+  {"id": "vuln-trim-newlines-old", "kind": "live_osv", "name": "trim-newlines", "version": "3.0.0", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "3.0.1", "expect_action": "AUTO_REMEDIATE",
+   "notes": "ReDoS CVE-2021-33623, fixed in 3.0.1."},
+
+  {"id": "vuln-semver-old", "kind": "live_osv", "name": "semver", "version": "5.7.0", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "5.7.2", "expect_action": "AUTO_REMEDIATE",
+   "notes": "ReDoS CVE-2022-25883, fixed in 5.7.2 (5.x branch)."},
+
+  {"id": "vuln-handlebars-old", "kind": "live_osv", "name": "handlebars", "version": "4.5.3", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "4.7.7", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Prototype pollution, fixed in 4.7.7."},
+
+  {"id": "vuln-ejs-old", "kind": "live_osv", "name": "ejs", "version": "3.1.6", "is_direct": true,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "3.1.7", "expect_action": "AUTO_REMEDIATE",
+   "notes": "Template injection CVE-2022-29078, fixed in 3.1.7."},
+
+  {"id": "clean-is-number", "kind": "live_osv", "name": "is-number", "version": "7.0.0", "is_direct": true,
+   "expect_vulnerable": false, "expect_action": "NONE",
+   "notes": "Trivial zero-dependency package; negative control."},
+
+  {"id": "clean-chalk", "kind": "live_osv", "name": "chalk", "version": "5.3.0", "is_direct": true,
+   "expect_vulnerable": false, "expect_action": "NONE",
+   "notes": "No known advisories; negative control."},
+
+  {"id": "vuln-lodash-transitive", "kind": "live_osv", "name": "lodash", "version": "4.17.15", "is_direct": false,
+   "expect_vulnerable": true, "expect_min_safe_at_least": "4.17.19", "expect_action": "NEEDS_REVIEW",
+   "notes": "Same vulnerability as vuln-lodash-old but as a transitive dependency; MVP policy must not auto-fix transitive deps."},
+
+  {"id": "policy-no-fixed-version", "kind": "policy_unit_no_fix", "name": "vuln-no-fix-test", "version": "1.0.0", "is_direct": true,
+   "expect_action": "NEEDS_REVIEW",
+   "notes": "Synthetic OSV-shaped record with no 'fixed' event, to test the no-safe-version rule deterministically."},
+
+  {"id": "policy-license-conflict", "kind": "policy_unit_license", "project_license": "MIT", "dep_license": "GPL-3.0",
+   "expect_conflict": true,
+   "notes": "Permissive project + copyleft dependency should be flagged for human/legal review."},
+
+  {"id": "policy-license-clean", "kind": "policy_unit_license", "project_license": "MIT", "dep_license": "MIT",
+   "expect_conflict": false,
+   "notes": "Matching permissive licenses should not be flagged."},
+
+  {"id": "eol-node-12", "kind": "eol", "major": 12, "expect_status": "eol",
+   "notes": "Node.js 12 reached end-of-life 2022-04-30."},
+
+  {"id": "eol-node-22", "kind": "eol", "major": 22, "expect_status": "supported",
+   "notes": "Node.js 22 is an active LTS line as of this project's build date."}
+]
