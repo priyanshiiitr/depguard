@@ -164,6 +164,38 @@
   .connect-status.connected { color: var(--ok); font-weight: 600; }
   .connect-tile button.connected { background: rgba(77,208,160,0.14); border-color: rgba(77,208,160,0.4); color: var(--ok); }
 
+  /* Scheduled monitoring */
+  select, input[type=number] {
+    width: 100%; background: var(--panel2); border: 1px solid var(--border); color: var(--text);
+    padding: 12px 14px; border-radius: 9px; font-size: 14px; outline: none; font-family: inherit;
+  }
+  select:focus, input[type=number]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(91,140,255,0.15); }
+  .check-row { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 12px; cursor: pointer; }
+  .check-row input { accent-color: var(--accent); width: 15px; height: 15px; }
+  .sched-empty { color: var(--muted); font-size: 13px; }
+  .sched-job { background: var(--panel2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .sched-job:last-child { margin-bottom: 0; }
+  .sched-job.is-running { border-color: rgba(91,140,255,0.55); box-shadow: 0 0 0 3px rgba(91,140,255,0.08); }
+  .sched-job.is-paused { opacity: 0.7; }
+  .sched-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .sched-repo { font-weight: 800; font-size: 14.5px; }
+  .sched-chip { font-size: 11.5px; padding: 3px 10px; border-radius: 999px; background: var(--panel3); border: 1px solid var(--border); font-weight: 600; }
+  .sched-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 14px 0 8px; }
+  .sched-meta .k { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
+  .sched-meta .v { font-size: 14px; font-weight: 700; margin-top: 3px; }
+  .countdown { font-variant-numeric: tabular-nums; }
+  .sched-change { font-size: 12.5px; margin-top: 4px; }
+  .sched-change .plus { color: var(--fail); font-weight: 700; }
+  .sched-change .minus { color: var(--ok); font-weight: 700; }
+  .sched-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+  .sched-actions button { padding: 8px 14px; font-size: 12.5px; }
+  .sched-history { margin-top: 12px; overflow-x: auto; }
+  .sched-history th, .sched-history td { padding: 6px 8px; font-size: 12px; }
+  .badge.RUNNING { background: rgba(91,140,255,0.18); color: var(--accent); }
+  .badge.ACTIVE { background: rgba(77,208,160,0.18); color: var(--ok); }
+  .badge.PAUSED { background: rgba(139,147,167,0.18); color: var(--muted); }
+  button.danger { background: rgba(255,77,94,0.12); border: 1px solid rgba(255,77,94,0.35); color: var(--fail); box-shadow: none; }
+
   @media (max-width: 560px) {
     .hero { flex-direction: column; align-items: flex-start; }
     .tagline { margin-left: 0; }
@@ -276,6 +308,38 @@
       <h2>Agent Execution Trace</h2>
       <ul class="trace-list" id="traceList"></ul>
     </div>
+  </div>
+
+  <div class="card" id="scheduleCard">
+    <h2>&#9200; Scheduled Monitoring <span class="h2-sub">DepGuard re-scans on its own and alerts only when something changes</span></h2>
+    <div class="row">
+      <div class="field" style="max-width:300px">
+        <label class="field-label" for="schedPreset">Schedule</label>
+        <select id="schedPreset" onchange="onSchedPresetChange()">
+          <option value="interval:5">Every 5 minutes</option>
+          <option value="interval:15">Every 15 minutes</option>
+          <option value="interval:60">Every hour</option>
+          <option value="daily:09:00, 18:00">Twice a day (09:00 &amp; 18:00)</option>
+          <option value="custom-interval">Custom interval (minutes)</option>
+          <option value="custom-daily">Custom daily times</option>
+        </select>
+      </div>
+      <div class="field hidden" id="schedIntervalField" style="max-width:180px">
+        <label class="field-label" for="schedInterval">Every N minutes</label>
+        <input type="number" id="schedInterval" min="1" value="1">
+      </div>
+      <div class="field hidden" id="schedDailyField" style="max-width:260px">
+        <label class="field-label" for="schedDaily">Daily at (24h, comma-separated)</label>
+        <input type="text" id="schedDaily" placeholder="09:00, 21:00">
+      </div>
+      <div style="align-self:flex-end">
+        <button id="schedCreateBtn" onclick="createSchedule()">Start Monitoring</button>
+      </div>
+    </div>
+    <label class="check-row"><input type="checkbox" id="schedNotify" checked> Alert Slack and log to Google Sheets when findings change</label>
+    <div class="token-note">Uses the repository URL and GitHub token entered above. The first scan runs immediately as the baseline. Scheduled scans never open pull requests on their own &mdash; a fix still needs a click on "Create Remediation PR".</div>
+    <div id="schedError" class="hidden" style="margin-top:14px"></div>
+    <div id="schedList" style="margin-top:16px"></div>
   </div>
 
   <div class="card">
@@ -644,6 +708,196 @@ async function runEval() {
     setLoading(btn, false, 'Run Evaluation Suite');
   }
 }
+
+// ---------------- Scheduled monitoring ----------------
+let scheduleJobs = [];
+let lastScheduleSnapshot = '';
+const expandedHistory = new Set();
+
+function onSchedPresetChange() {
+  const v = document.getElementById('schedPreset').value;
+  document.getElementById('schedIntervalField').classList.toggle('hidden', v !== 'custom-interval');
+  document.getElementById('schedDailyField').classList.toggle('hidden', v !== 'custom-daily');
+}
+
+function readSchedule() {
+  const v = document.getElementById('schedPreset').value;
+  if (v.startsWith('interval:')) return {schedule_type: 'interval', interval_minutes: parseInt(v.slice(9), 10)};
+  if (v.startsWith('daily:')) return {schedule_type: 'daily', daily_times: v.slice(6)};
+  if (v === 'custom-interval') return {schedule_type: 'interval', interval_minutes: parseInt(document.getElementById('schedInterval').value, 10)};
+  return {schedule_type: 'daily', daily_times: document.getElementById('schedDaily').value};
+}
+
+async function createSchedule() {
+  const errBox = document.getElementById('schedError');
+  errBox.classList.add('hidden');
+  const repoUrl = document.getElementById('repoUrl').value.trim();
+  if (!repoUrl) {
+    errBox.textContent = 'Enter a GitHub repository URL in the Analyze section above first.';
+    errBox.className = 'error-box';
+    return;
+  }
+  const body = {repo_url: repoUrl, notify: document.getElementById('schedNotify').checked, ...readSchedule()};
+  const token = document.getElementById('ghToken').value.trim();
+  if (token) body.github_token = token;
+
+  const btn = document.getElementById('schedCreateBtn');
+  setLoading(btn, true, 'Starting...');
+  try {
+    const res = await fetch(`${API}/api/schedules`, {
+      method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      errBox.textContent = (data.detail && data.detail.error) || 'Could not create the schedule.';
+      errBox.className = 'error-box';
+      return;
+    }
+    await refreshSchedules();
+    setTimeout(refreshSchedules, 800);
+  } catch (e) {
+    errBox.textContent = 'Network error contacting DepGuard backend: ' + e;
+    errBox.className = 'error-box';
+  } finally {
+    setLoading(btn, false, 'Start Monitoring');
+  }
+}
+
+async function scheduleAction(id, action) {
+  const isDelete = action === 'delete';
+  const url = isDelete ? `${API}/api/schedules/${id}` : `${API}/api/schedules/${id}/${action}`;
+  try { await fetch(url, {method: isDelete ? 'DELETE' : 'POST'}); } catch (e) { /* refresh shows real state */ }
+  if (isDelete) expandedHistory.delete(id);
+  await refreshSchedules();
+  if (action === 'run') setTimeout(refreshSchedules, 800);
+}
+
+async function viewScheduleResult(id) {
+  const job = scheduleJobs.find(j => j.id === id);
+  if (!job) return;
+  const res = await fetch(`${API}/api/schedules/${id}/latest`);
+  if (!res.ok) return;
+  const data = await res.json();
+  lastRepoUrl = job.repo_url;
+  lastGithubToken = document.getElementById('ghToken').value.trim();
+  document.getElementById('remediationSection').classList.add('hidden');
+  document.getElementById('remediateError').classList.add('hidden');
+  renderAnalysis(data);
+  document.getElementById('resultsSection').scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function toggleHistory(id) {
+  if (expandedHistory.has(id)) expandedHistory.delete(id); else expandedHistory.add(id);
+  lastScheduleSnapshot = '';
+  renderSchedules();
+}
+
+function formatCountdown(iso) {
+  if (!iso) return '-';
+  const ms = new Date(iso).getTime() - Date.now();
+  if (ms <= 0) return 'due now';
+  const total = Math.round(ms / 1000);
+  const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+  return h > 0 ? `in ${h}h ${m}m` : `in ${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatTime(iso) {
+  return iso ? new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'}) : '-';
+}
+
+function renderScheduleJob(job) {
+  const status = job.running ? 'RUNNING' : (job.paused ? 'PAUSED' : 'ACTIVE');
+  const last = job.last_run;
+  let lastHtml = '<span class="muted">Not run yet</span>';
+  let changeHtml = '';
+  if (last && last.status === 'SUCCESS') {
+    lastHtml = `${badge(last.overall_risk)} ${last.findings} findings &middot; ${last.auto_fixable} auto-fixable`;
+    changeHtml = last.baseline
+      ? `<div class="sched-change muted">Baseline scan &middot; ${esc(last.notify_note)}</div>`
+      : `<div class="sched-change"><span class="plus">+${last.new} new</span> &middot; <span class="minus">&minus;${last.resolved} resolved</span> &middot; <span class="muted">${esc(last.notify_note)}</span></div>`;
+  } else if (last) {
+    lastHtml = `${badge('FAILED')} <span class="muted">${esc(last.error)}</span>`;
+  }
+  const alerts = last && last.status === 'SUCCESS'
+    ? `Slack ${last.slack_sent ? '✓' : '—'} &middot; Sheets ${last.sheets_updated ? '✓' : '—'}`
+    : '-';
+  const nextText = job.running ? 'scanning now…' : (job.paused ? 'paused' : formatCountdown(job.next_run_at));
+  const countdownAttr = job.running || job.paused ? '' : esc(job.next_run_at || '');
+
+  const history = expandedHistory.has(job.id) ? `
+    <div class="sched-history">
+      <table>
+        <thead><tr><th>Finished</th><th>Trigger</th><th>Result</th><th>Findings</th><th>New</th><th>Resolved</th><th>Alert</th></tr></thead>
+        <tbody>
+          ${job.history.map(r => `
+            <tr>
+              <td>${formatTime(r.finished_at)}</td>
+              <td class="muted">${esc(r.trigger)}</td>
+              <td>${r.status === 'SUCCESS' ? badge(r.overall_risk) : badge('FAILED')}</td>
+              <td>${r.findings ?? '-'}</td>
+              <td>${r.status === 'SUCCESS' && !r.baseline ? r.new : '-'}</td>
+              <td>${r.status === 'SUCCESS' && !r.baseline ? r.resolved : '-'}</td>
+              <td class="muted">${esc(r.status === 'SUCCESS' ? r.notify_note : r.error)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>` : '';
+
+  return `
+    <div class="sched-job ${job.running ? 'is-running' : ''} ${job.paused ? 'is-paused' : ''}">
+      <div class="sched-head">
+        <span class="sched-repo">${esc(job.repo)}</span>
+        <span class="sched-chip">&#9200; ${esc(job.label)}</span>
+        ${badge(status)}
+        ${job.notify ? '' : '<span class="sched-chip">alerts off</span>'}
+      </div>
+      <div class="sched-meta">
+        <div><div class="k">Next scan</div><div class="v countdown" data-next="${countdownAttr}">${nextText}</div></div>
+        <div><div class="k">Last scan</div><div class="v">${last ? formatTime(last.finished_at) : '-'}</div></div>
+        <div><div class="k">Latest result</div><div class="v">${lastHtml}</div></div>
+        <div><div class="k">Alerts</div><div class="v">${alerts}</div></div>
+      </div>
+      ${changeHtml}
+      <div class="sched-actions">
+        <button class="secondary" onclick="scheduleAction('${job.id}', 'run')" ${job.running ? 'disabled' : ''}>Run now</button>
+        <button class="secondary" onclick="scheduleAction('${job.id}', '${job.paused ? 'resume' : 'pause'}')">${job.paused ? 'Resume' : 'Pause'}</button>
+        <button class="secondary" onclick="viewScheduleResult('${job.id}')" ${job.has_latest_result ? '' : 'disabled'}>View latest results</button>
+        <button class="secondary" onclick="toggleHistory('${job.id}')">${expandedHistory.has(job.id) ? 'Hide' : 'Show'} history (${job.history.length})</button>
+        <button class="danger" onclick="scheduleAction('${job.id}', 'delete')">Delete</button>
+      </div>
+      ${history}
+    </div>`;
+}
+
+function renderSchedules() {
+  // Re-render only when something changed, so buttons don't flicker every poll;
+  // the countdown text is updated separately every second.
+  const snapshot = JSON.stringify(scheduleJobs) + '|' + [...expandedHistory].join(',');
+  if (snapshot === lastScheduleSnapshot) return;
+  lastScheduleSnapshot = snapshot;
+  document.getElementById('schedList').innerHTML = scheduleJobs.length
+    ? scheduleJobs.map(renderScheduleJob).join('')
+    : '<div class="sched-empty">No schedules yet. Enter a repository above, pick a schedule, and click Start Monitoring.</div>';
+}
+
+async function refreshSchedules() {
+  try {
+    const res = await fetch(`${API}/api/schedules`);
+    const data = await res.json();
+    scheduleJobs = data.jobs || [];
+    renderSchedules();
+  } catch (e) { /* keep the last rendered state */ }
+}
+
+function tickCountdowns() {
+  document.querySelectorAll('.countdown[data-next]').forEach(el => {
+    if (el.dataset.next) el.textContent = formatCountdown(el.dataset.next);
+  });
+}
+
+refreshSchedules();
+setInterval(refreshSchedules, 4000);
+setInterval(tickCountdowns, 1000);
 </script>
 </body>
 </html>

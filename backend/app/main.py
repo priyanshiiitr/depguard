@@ -1,3 +1,5 @@
+import asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -5,13 +7,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from .models import AnalyzeRequest, RemediateRequest
+from .models import AnalyzeRequest, RemediateRequest, ScheduleCreateRequest
 from .analyzer import analyze_repo, AnalysisError
 from .remediator import remediate_repo, RemediationError
 from .eval_runner import run_eval
-from . import oauth
+from . import oauth, scheduler
 
-app = FastAPI(title="DepGuard")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    loop_task = asyncio.create_task(scheduler.run_loop())
+    try:
+        yield
+    finally:
+        loop_task.cancel()
+
+
+app = FastAPI(title="DepGuard", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,6 +119,66 @@ async def oauth_google_callback(code: str = "", state: str = "", error: str = ""
         return _oauth_popup_response("google", False, "Invalid or expired OAuth state.")
     ok, message = await oauth.google_exchange_code(code)
     return _oauth_popup_response("google", ok, message)
+
+
+def _schedule_or_404(job_id: str) -> dict:
+    job = scheduler.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail={"error": "Schedule not found."})
+    return job
+
+
+@app.get("/api/schedules")
+async def api_list_schedules():
+    return {"jobs": scheduler.list_jobs(), "server_time": scheduler.now_iso()}
+
+
+@app.post("/api/schedules")
+async def api_create_schedule(req: ScheduleCreateRequest):
+    try:
+        job = scheduler.create_job(
+            req.repo_url, req.github_token, req.schedule_type,
+            interval_minutes=req.interval_minutes, daily_times=req.daily_times, notify=req.notify,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail={"error": str(e)})
+    return scheduler.public_view(job)
+
+
+@app.post("/api/schedules/{job_id}/run")
+async def api_run_schedule(job_id: str):
+    job = _schedule_or_404(job_id)
+    scheduler.run_now(job)
+    return scheduler.public_view(job)
+
+
+@app.post("/api/schedules/{job_id}/pause")
+async def api_pause_schedule(job_id: str):
+    job = _schedule_or_404(job_id)
+    scheduler.set_paused(job, True)
+    return scheduler.public_view(job)
+
+
+@app.post("/api/schedules/{job_id}/resume")
+async def api_resume_schedule(job_id: str):
+    job = _schedule_or_404(job_id)
+    scheduler.set_paused(job, False)
+    return scheduler.public_view(job)
+
+
+@app.delete("/api/schedules/{job_id}")
+async def api_delete_schedule(job_id: str):
+    _schedule_or_404(job_id)
+    scheduler.delete_job(job_id)
+    return {"deleted": job_id}
+
+
+@app.get("/api/schedules/{job_id}/latest")
+async def api_schedule_latest(job_id: str):
+    job = _schedule_or_404(job_id)
+    if job["_last_result"] is None:
+        raise HTTPException(status_code=404, detail={"error": "This schedule has no successful scan yet."})
+    return job["_last_result"]
 
 
 app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")

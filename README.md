@@ -12,12 +12,13 @@ Engineering teams accumulate vulnerable, end-of-life, or license-incompatible de
 
 DepGuard started as a narrow, npm-only agent and was deliberately extended (in phases, each gated on the reliability suite staying green) to cover six ecosystems total. It:
 
-1. Reads a repository's real manifest/lockfiles from GitHub across npm, PyPI, crates.io, Go, Packagist, and RubyGems, plus five more formats (Maven, NuGet) via an LLM extraction step described below.
+1. Reads a repository's real manifest/lockfiles from GitHub across npm, PyPI, crates.io, Go, Packagist, and RubyGems, plus five harder formats (`pom.xml`, `build.gradle`, `Pipfile.lock`, `pyproject.toml`, `*.csproj`) via an LLM extraction step whose output is independently verified (described below).
 2. Checks every resolved dependency against **OSV.dev** (vulnerabilities), **deps.dev** (license metadata, npm), and **endoflife.date** (Node.js runtime support window).
 3. Applies a small set of deterministic, conservative policy rules to decide, per finding, whether it's safe to auto-remediate, needs a human, or is merely detected (advisory real, no remediation path built yet for that ecosystem).
 4. On explicit user confirmation, opens a **real GitHub pull request** on a new branch — never touching the default branch directly — covering every auto-fixable finding across every ecosystem in one PR.
 5. Logs the remediation (and any detection-only findings, never silently dropped) to a **Google Sheet** and posts a **Slack** notification.
-6. Is judged on a 33-case evaluation harness that runs against live external data, not canned answers.
+6. Runs from a single web dashboard where a user pastes a repo URL and (optionally) their own GitHub token, and can connect **their own** Slack workspace and Google account through real OAuth. It can also watch a repo on a schedule (for example every 5 minutes, or twice a day) and alert only when findings change.
+7. Is judged on a 33-case evaluation harness that runs against live external data, not canned answers.
 
 ## How It Works
 
@@ -79,13 +80,15 @@ Findings that survive verification are always `DETECTION_ONLY` (see the remediat
 | # | Integration | Role | Type |
 |---|---|---|---|
 | 1 | **GitHub** | Read repo/lockfile, create branch, patch files, commit, open PR | Action (write) |
-| 2 | **Slack** | Notify the team when a remediation completes | Action (write) |
-| 3 | **Google Sheets** | Append-only remediation log (audit trail) | Action (write) |
+| 2 | **Slack** | Notify the team when a remediation completes (user's own workspace via OAuth "Connect Slack", or a server-configured webhook) | Action (write) |
+| 3 | **Google Sheets** | Append-only remediation log (a fresh sheet in the user's own Drive via OAuth "Connect Google Sheets", or a server-configured service account) | Action (write) |
 | 4 | **OSV.dev** | Ground truth for vulnerability existence + fixed versions | Intelligence (read) |
 | 5 | **deps.dev** | SPDX license metadata for direct dependencies | Intelligence (read) |
 | 6 | **endoflife.date** | Node.js runtime support/EOL status | Intelligence (read) |
+| 7 | **Groq** (`openai/gpt-oss-120b`) | Extracts dependency candidates from manifests with no deterministic parser; never decides vulnerability | Extraction (verified) |
+| 8 | **Package registries** (PyPI, crates.io, RubyGems, Packagist, Maven Central, NuGet, Go proxy, npm) | Confirm every LLM-proposed `name@version` really exists; npm registry supplies integrity hashes for lockfile patches | Verification (read) |
 
-These six form one pipeline, not six demos: the GitHub read feeds OSV/deps.dev/endoflife.date, whose combined output drives the GitHub write, which in turn drives the Sheets and Slack actions.
+These form one pipeline, not separate demos: the GitHub read feeds the parsers and the LLM agent, whose verified output feeds OSV/deps.dev/endoflife.date, whose combined output drives the GitHub write, which in turn drives the Sheets and Slack actions.
 
 ## Agent Decision Logic
 
@@ -111,10 +114,12 @@ Reliability is a first-class feature, not an afterthought. [`eval/gold_set.json`
 
 Last recorded run (see the in-app "Reliability & Evaluation" panel for a live re-run): **33/33 cases passed, 100% accuracy, 100% precision/recall on vulnerability detection, 0 unsafe automatic upgrades.**
 
-This harness earned its keep twice over the course of the build, both documented in the commit history:
+Real bugs found and fixed during the build, all documented in the commit history:
 - A policy bug where DepGuard would pick a fix version that satisfied only the cheapest of several advisories (fixed by taking the max of each advisory's own minimum fix).
 - A stale assumption in the gold set itself — `lodash@4.17.21`, long treated as "the patched version," turned out to have a real, newly published OSV.dev advisory (`GHSA-f23m-r3pf-42rh`, fixed in 4.18.0). That case is kept in the gold set on purpose, as proof the system reasons from live data rather than memorized versions.
 - (Caught by manual live testing, not the harness itself, but worth naming): `is_direct` was originally computed by checking presence in the npm lockfile, which is wrong for lockfileVersion 3 — transitive packages appear there too. Fixed to check the manifest's declared dependencies instead.
+- OSV advisories for PyPI/RubyGems/Packagist often use range type `ECOSYSTEM` instead of `SEMVER`, and the fixed-version extractor was silently ignoring them — so real fixes (e.g. `flask 2.0.0 → 3.1.3`) showed up as "no fix available." Fixed, and `flask` is now a gold-set case.
+- Clicking "Create Remediation PR" again while a PR for the same dependency set was still open caused a GitHub `409 Conflict`: DepGuard tried to patch the already-patched branch using stale file SHAs. It now detects the open PR and returns it instead of touching the branch. Separately, GitHub sometimes returns a one-off `409`/`5xx` on reads, so those requests now retry briefly.
 
 All numbers shown anywhere in the app are computed from an actual run in that process; nothing is hardcoded.
 
@@ -126,23 +131,50 @@ All numbers shown anywhere in the app are computed from an actual run in that pr
 - (Optional) A Slack incoming webhook URL.
 - (Optional) A Google Cloud service account with access to a target Google Sheet.
 - (Optional) A [Groq](https://console.groq.com/) API key, only needed if you want the LLM Manifest Agent to analyze `pom.xml`/`build.gradle`/`Pipfile.lock`/`pyproject.toml`/`*.csproj`. Without it, those files are detected and reported as skipped rather than analyzed — everything else works unaffected.
+- (Optional, for the dashboard's "Connect" buttons) OAuth apps:
+  - **Slack**: create an app at [api.slack.com/apps](https://api.slack.com/apps). Under **OAuth & Permissions**, add the redirect URL `http://localhost:8010/oauth/slack/callback` and the bot scope `incoming-webhook`. Copy the Client ID and Client Secret.
+  - **Google**: in Google Cloud, enable the **Google Sheets API**. Configure the OAuth consent screen (External, add yourself as a test user, add the `.../auth/spreadsheets` scope). Create an OAuth client of type **Web application** with redirect URI `http://localhost:8010/oauth/google/callback`, then copy the Client ID and Client Secret.
 
 ### Run it
 
 ```bash
 cd backend
 pip install -r requirements.txt
-cp ../.env.example ../.env   # fill in GITHUB_TOKEN at minimum
-uvicorn app.main:app --reload --port 8000
+cp ../.env.example ../.env   # fill in GITHUB_TOKEN at minimum (or paste a token in the dashboard)
+uvicorn app.main:app --port 8010
 ```
 
-Open `http://localhost:8000/`.
+Open `http://localhost:8010/`. Use port 8010 (or change `OAUTH_REDIRECT_BASE` and both OAuth redirect URIs to match another port) — OAuth providers require the redirect URI to match exactly.
 
 ### Try it against the demo repo
 
 Analyze **https://github.com/priyanshiiitr/depguard-demo-vulnerable** (source also mirrored in [`demo-repo-vulnerable/`](demo-repo-vulnerable/)) — it deliberately pins vulnerable dependencies across three ecosystems: `lodash@4.17.15`, `minimist@1.2.5`, `axios@0.21.0` (npm), `flask@2.0.0` (`requirements.txt`, PyPI), and a `pom.xml` containing `commons-collections@3.2.1` (the CVE-2015-4852 deserialization RCE) alongside a dependency whose version is deliberately left to a Spring Boot parent POM with no literal in the file — plus a Node.js `engines` range that is already end-of-life.
 
 This exact flow was run for real while building DepGuard: analysis correctly found auto-remediable npm+PyPI vulnerabilities, a transitive npm vulnerability routed to human review, a `DETECTION_ONLY` Maven finding (extracted by the LLM agent and independently verified against Maven Central), and an informational EOL flag — and clicking "Create Remediation PR" opened a real pull request bundling every auto-fixable change into one branch, appended real rows to Google Sheets (including the detection-only finding), and delivered a real Slack notification.
+
+## Using the Dashboard
+
+1. **Connect Your Tools (optional)**: click **Connect Slack** to choose a workspace and channel, and **Connect Google Sheets** to sign in with Google. DepGuard creates a new "DepGuard Remediation Log" spreadsheet in your Drive. Each tile shows **Connected** with the workspace or a link to the sheet. When a service is connected, notifications and log rows go to your accounts instead of the server's defaults.
+2. **Analyze a GitHub repository**: paste the repo URL and, optionally, a fine-grained GitHub token (Contents + Pull requests: Read and write). Leave the token blank to use the server's `GITHUB_TOKEN`.
+3. **Read the results**:
+   - **Repository Summary**: overall risk level and which ecosystems were found.
+   - **LLM Manifest Agent Activity**: shown only when an LLM-parsed file was present. Lists each file the LLM read, with counts of dependencies extracted, verified, and rejected, plus the reason for each rejection.
+   - **Findings**: grouped by ecosystem, with counts of auto-fixable, needs-review, detection-only, and informational findings. Findings that came from the LLM path are tagged 🤖 LLM.
+   - **Agent Execution Trace**: a timeline of every step DepGuard ran. LLM steps are highlighted.
+4. **Create Remediation PR**: opens one real PR for all auto-fixable findings, then shows a checklist (branch, files, commit, PR, Sheets, Slack) with a link to the PR. If a PR for the same fixes is already open, DepGuard returns that PR instead of creating a duplicate.
+5. **Run Evaluation Suite**: re-runs all 33 gold-set cases live and shows accuracy, precision/recall, and unsafe auto-upgrade count.
+
+## Scheduled Monitoring
+
+DepGuard can watch a repository on a schedule, so nobody has to remember to click Analyze.
+
+- In the **Scheduled Monitoring** card, pick a schedule and click **Start Monitoring**. The options are **every 5 minutes**, **every 15 minutes**, **every hour**, **twice a day (09:00 and 18:00)**, a custom interval (minimum 1 minute), or custom daily times in 24-hour `HH:MM` (server local time). The schedule uses the repo URL and token from the Analyze section.
+- The first scan runs immediately and becomes the baseline. Every later scan runs the same deterministic analysis and compares its findings with the previous scan.
+- Slack gets an alert, and Google Sheets gets a row per change, only when something changed: a **new** finding appeared, or an existing one was **resolved** (for example after a remediation PR is merged). A scan with no changes sends nothing, so even a 5-minute schedule doesn't spam the channel. Alerts can be turned off per schedule.
+- Each schedule shows a live countdown to its next scan, the latest result, whether the alert went out, and its last 10 runs. You can run it immediately, pause, resume, or delete it. **View latest results** loads that scan into the main dashboard, where you can open a PR as usual.
+- **Scheduled scans never open a pull request.** Monitoring is automatic, but changing code still requires a person to click **Create Remediation PR**.
+
+API: `GET`/`POST /api/schedules`, `POST /api/schedules/{id}/run`, `POST /api/schedules/{id}/pause`, `POST /api/schedules/{id}/resume`, `DELETE /api/schedules/{id}`, `GET /api/schedules/{id}/latest`.
 
 ## Environment Variables
 
@@ -154,9 +186,15 @@ SLACK_WEBHOOK_URL=         # incoming webhook URL; remediation step is skipped (
 GOOGLE_SHEETS_ID=          # target spreadsheet ID; logging step is skipped (not faked) if unset
 GOOGLE_SERVICE_ACCOUNT_JSON=  # raw JSON or a path to the service account key file
 GROQ_API_KEY=              # optional: enables the LLM Manifest Agent (pom.xml/build.gradle/Pipfile.lock/pyproject.toml/*.csproj); those files are skipped (not faked) if unset
+
+SLACK_CLIENT_ID=           # optional: enables the dashboard's "Connect Slack" OAuth button
+SLACK_CLIENT_SECRET=
+GOOGLE_CLIENT_ID=          # optional: enables the dashboard's "Connect Google Sheets" OAuth button
+GOOGLE_CLIENT_SECRET=
+OAUTH_REDIRECT_BASE=http://localhost:8010   # must match the redirect URIs registered with Slack and Google
 ```
 
-The token is read server-side only (`backend/app/config.py`) and is never sent to the frontend.
+All secrets are read server-side only (`backend/app/config.py`) and never sent to the frontend. A GitHub token pasted into the dashboard is sent only to this app's own backend for that request, and is never logged, stored, or echoed back.
 
 ## Demo
 
@@ -173,10 +211,14 @@ The token is read server-side only (`backend/app/config.py`) and is never sent t
 - **OSV lookups are capped** at 300 unique package@version pairs per ecosystem per analysis for latency; larger monorepos would need pagination.
 - **LLM extraction has a fixed 12,000-character input cap** per file to bound token usage; an unusually large `pom.xml` could be truncated (surfaced, not silent — the raw dependency count reported still reflects what was actually sent).
 - **A `last_affected`-only OSV range** (the last known-bad version, with no explicit `fixed` version) is deliberately left unresolved rather than guessed into a "next version" by querying the registry's full version list — this shows up as `NEEDS_REVIEW` for a few real-world packages (e.g. `paramiko`, `cryptography` at certain versions) even though *a* fix conceptually exists upstream.
+- **OAuth connections are single-user and in-memory**: this was built for a live demo, so there are no per-user sessions and no database. A restart clears the connections, and anyone using the same running server shares them. While the Google OAuth app is in "Testing" mode, only accounts added as test users can connect.
+- **Schedules also live in server memory**: they only run while the server is running and disappear on restart. Daily times use the server's local time zone. For always-on monitoring you'd deploy the server somewhere persistent, or call `POST /api/schedules/{id}/run` from an external cron job.
 
 ## Safety
 
 - DepGuard never modifies the default branch. All changes land on a `depguard/fix-<dependency>` branch via a pull request that a human must review and merge.
+- OAuth tokens (Slack webhook, Google credentials) exist only in server memory, are never written to disk, and are never sent to the browser. OAuth callbacks are protected with a one-time `state` value.
+- Scheduled monitoring only analyzes and alerts, and can never open a pull request. A GitHub token given when creating a schedule is kept in memory for that schedule only and is never returned by the API.
 - Ground truth for "is this vulnerable" and "what version fixes it" always comes from OSV.dev, never from an LLM guess — in any ecosystem, including the ones whose *extraction* involves an LLM (see "The LLM Manifest Agent" above). The LLM's output is treated as untrusted input and independently verified against the source file and the real package registry before it can influence anything.
 - When the system cannot confidently establish a safe remediation (no fixed version, unparsable versions, transitive-only fix, a version that wouldn't satisfy every known advisory, or an ecosystem with no remediation path built) it marks the finding `NEEDS_REVIEW` or `DETECTION_ONLY` and does not open an automatic PR for it — and never drops it from the UI, PR body, Sheets, or Slack just because no code change was made.
 - Every action reported in the UI (branch created, files updated, commit created, PR opened, Sheets updated, Slack sent) reflects the real status of that external call; a failed Slack post or Sheets write is shown as failed/skipped, never as a fabricated success.

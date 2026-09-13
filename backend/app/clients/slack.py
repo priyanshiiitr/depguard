@@ -36,3 +36,50 @@ async def send_remediation_notification(repo: str, changes: list[dict], pr_url: 
             return r.status_code == 200
     except httpx.HTTPError:
         return False
+
+
+async def send_scan_alert(repo: str, schedule: str, overall_risk: str, findings: list[dict], new: list[dict], resolved: list[dict], is_baseline: bool, webhook_url: str | None = None) -> bool:
+    """Alert for a scheduled scan: the baseline, or what changed since the previous scan.
+    Returns True if Slack accepted the message, False otherwise (never raises)."""
+    target_webhook = webhook_url or config.SLACK_WEBHOOK_URL
+    if not target_webhook:
+        return False
+
+    def fmt(f: dict) -> str:
+        return (
+            f"`{f.get('ecosystem') or '-'}` {f['dependency']}@{f.get('current_version') or '-'}"
+            f"  |  *Risk:* {f['risk']}  |  {f.get('advisory_id') or f.get('type', '').lower()}"
+        )
+
+    auto_fixable = sum(1 for f in findings if f.get("recommended_action") == "AUTO_REMEDIATE")
+    summary = f"{len(findings)} finding(s), {auto_fixable} auto-fixable, overall risk {overall_risk}"
+
+    if is_baseline:
+        lines = [
+            "*DepGuard scheduled monitoring started.*",
+            f"*Repository:* {repo}",
+            f"*Schedule:* {schedule}",
+            f"*Baseline:* {summary}",
+            "You'll be alerted when a new vulnerability appears or an existing one is resolved.",
+        ]
+    else:
+        lines = [
+            "*DepGuard scheduled scan detected changes.*",
+            f"*Repository:* {repo}",
+            f"*Schedule:* {schedule}",
+        ]
+        if new:
+            lines.append(f"*New findings ({len(new)}):*")
+            lines += [f"  - {fmt(f)}" for f in new[:10]]
+        if resolved:
+            lines.append(f"*Resolved since last scan ({len(resolved)}):*")
+            lines += [f"  - {fmt(f)}" for f in resolved[:10]]
+        lines.append(f"*Now:* {summary}")
+    lines.append("_Scheduled scans only alert. Opening a fix PR still requires a person to click Create Remediation PR._")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(target_webhook, json={"text": "\n".join(lines)})
+            return r.status_code == 200
+    except httpx.HTTPError:
+        return False
